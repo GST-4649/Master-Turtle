@@ -3,7 +3,7 @@ version = 20261013.1840
 	Last edited: see version YYYYMMDD.HHMM
 	Master Turtle pack installer/updater.
 	Installs the full Master Turtle tree for MC 1.20.x from
-	https://github.com/DaniCePe/Master-Turtle
+	https://github.com/GST-4649/Master-Turtle
 	If files exist it will compare the version and only update if newer.
 	This updater NEVER pulls from Inksaver's repos; our tree is the source.
 ]]
@@ -78,7 +78,7 @@ function checkFile(url, fileName, tmpDir)
 		vlog("Missing fileName "..fileName..", trying Github")
 	end
 	local fileURL = url..fileName
-	-- eg "https://raw.githubusercontent.com/DaniCePe/Master-Turtle/main/<tree>/lib/ui/Multibutton.lua"
+	-- eg "https://raw.githubusercontent.com/GST-4649/Master-Turtle/main/<tree>/lib/ui/Multibutton.lua"
 	local response, message = http.get(fileURL)
 	if response == nil then
 		log("failed to get "..fileName.." from Github")
@@ -313,7 +313,7 @@ function main()
 	vlog("Free space before update: "..freeSpace.."\n")
 	clear()
 	
-	local url = "https://raw.githubusercontent.com/DaniCePe/Master-Turtle/main/1.20.x/"
+	local url = "https://raw.githubusercontent.com/GST-4649/Master-Turtle/main/1.20.x/"
 	for _, file in ipairs(fileList) do
 		local n, abort = process(url, file, tmpDir, fileSizes)
 		updated = updated + n
