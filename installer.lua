@@ -4,7 +4,7 @@ version = 20261013.1200
 local filename = "updater.lua"
 -- url masked so this account is not banned by Pastebin
 -- From FAQ do not post spam links (this includes promoting your own site)
-local base = "https:".."//".."raw.".."githubusercontent.".."com".."/DaniCePe".."/Master-Turtle".."/main/"
+local base = "https:".."//".."raw.".."githubusercontent.".."com".."/GST-4649".."/Master-Turtle".."/main/"
 
 -- Detect version tree: "ComputerCraft 1.80pr1" -> 1.12.x, else 1.20.x
 -- Prefer _MC_VERSION (e.g. "1.12.2"), since an unescaped dot in the
