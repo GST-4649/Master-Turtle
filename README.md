@@ -37,14 +37,14 @@ Manual alternative with wget, if you prefer:
 Minecraft 1.12.2:
 
 ```
-wget https://raw.githubusercontent.com/DaniCePe/Master-Turtle/main/1.12.x/updater.lua updater
+wget https://raw.githubusercontent.com/GST-4649/Master-Turtle/main/1.12.x/updater.lua updater
 updater
 ```
 
 Minecraft 1.20+:
 
 ```
-wget https://raw.githubusercontent.com/DaniCePe/Master-Turtle/main/1.20.x/updater.lua updater
+wget https://raw.githubusercontent.com/GST-4649/Master-Turtle/main/1.20.x/updater.lua updater
 updater
 ```
 
