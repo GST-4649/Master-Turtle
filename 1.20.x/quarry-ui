@@ -1,4 +1,4 @@
-version = 20261101.0200
+version = 20261101.0500
 -- quarry-ui: preset builder and TUI for the Master Turtle quarry.
 -- Wrapper only. It writes current-preset.txt, then runs quarry with
 -- that preset. It never edits quarry, and it never edits its save file.
@@ -241,7 +241,7 @@ local function listPresets()
   local out = {}
   if fs.list then
     for _, name in ipairs(fs.list("")) do
-      if name:sub(-4) == ".txt" and name ~= "current-preset.txt" then out[#out + 1] = name end
+      if name:sub(-4) == ".txt" and name ~= "current-preset.txt" and name ~= "quarry-ui-last-mode.txt" then out[#out + 1] = name end
     end
     table.sort(out)
   end
@@ -395,6 +395,7 @@ local function finishEdit(accept)
   if not f or not accept then editBuffer = "" return end
   local buf = trim(editBuffer)
   editBuffer = ""
+  if buf == "" and f.key ~= "logExtension" then editField = nil errorMsg = "" return end
   if f.kind == "number" or f.kind == "float" then
     local n = tonumber(buf)
     if not n then errorMsg = "Enter a number for " .. f.label return end
@@ -456,7 +457,7 @@ local function drawPage()
     {x = 12, y = H - 1, label = "[Info]", bg = "blue", fg = "white", action = "info"},
     {x = W - 11, y = H - 1, label = "[" .. nextLabel .. "]", bg = "lime", action = "next"},
   }
-  drawFooter("Up/Down select, Space toggle, Enter edit, +/- adjust, N next, B back, I info", btns)
+  drawFooter("Up/Down, Space, Enter, +/-, B back, Q quit", btns)
   return btns
 end
 
@@ -479,7 +480,7 @@ local function drawSummary()
     {x = 20, y = H - 1, label = "[Save]", bg = "blue", fg = "white", action = "save"},
     {x = 29, y = H - 1, label = "[Info]", bg = "blue", fg = "white", action = "info"},
   }
-  drawFooter("S start, B back, P save preset, I info, Up/Down scroll", btns)
+  drawFooter("S start, B back, P save, I info, Q quit", btns)
   return btns
 end
 
@@ -494,7 +495,7 @@ local function drawInfo()
     put(2, y, helpLines[i]:sub(1, W - 2), "white", "black")
   end
   local btns = {{x = 2, y = H - 1, label = "[Back]", bg = "gray", action = "back"}}
-  drawFooter("Up/Down scroll, Esc back", btns)
+  drawFooter("Up/Down scroll, B back, Q quit", btns)
   return btns
 end
 
@@ -532,7 +533,7 @@ local function drawLoad()
     local bg = (i == loadSel) and "lightGray" or "black"
     put(2, 3 + i, name, "white", bg)
   end
-  drawFooter("Up/Down select, Enter load, Esc back", nil)
+  drawFooter("Up/Down select, Enter load, B back, Q quit", nil)
 end
 
 local function drawSave()
@@ -545,7 +546,7 @@ local function drawSave()
     {x = 2, y = H - 1, label = "[Save]", bg = "lime", action = "save"},
     {x = 11, y = H - 1, label = "[Cancel]", bg = "gray", action = "cancel"},
   }
-  drawFooter("Type a name, Enter save, Esc cancel", btns)
+  drawFooter("Type a name, Enter save or cancel if empty", btns)
   return btns
 end
 
@@ -627,7 +628,6 @@ while true do
     elseif etype == "char" and ev[2]:lower() == "c" then
       screen = "modeSelect" modeSel = 1
     elseif etype == "char" and ev[2]:lower() == "q" then break
-    elseif etype == "key" and isKey(ev, "esc", 1) then break
     elseif etype == "mouse_click" then
       local act = buttonAt(btns, ev[3], ev[4])
       if act == "use" then
@@ -656,7 +656,6 @@ while true do
       elseif modeSel == 6 then returnScreen = "modeSelect" screen = "info" infoScroll = 0
       elseif modeSel == 7 then break end
     elseif etype == "char" and ev[2]:lower() == "q" then break
-    elseif etype == "key" and isKey(ev, "esc", 1) then break
     elseif etype == "mouse_click" then
       local row = ev[4] - 3
       if row >= 1 and row <= 7 then
@@ -686,7 +685,6 @@ while true do
         end
       elseif etype == "key" and isKey(ev, "backspace", 14) then editBuffer = editBuffer:sub(1, -2)
       elseif etype == "key" and isKey(ev, "enter", 28) then finishEdit(true)
-      elseif etype == "key" and isKey(ev, "esc", 1) then finishEdit(false)
       elseif etype == "key" and isKey(ev, "up", 200) then finishEdit(true) moveSelection(-1)
       elseif etype == "key" and isKey(ev, "down", 208) then finishEdit(true) moveSelection(1)
       elseif etype == "mouse_click" then
@@ -736,8 +734,7 @@ while true do
       elseif etype == "char" and ev[2]:lower() == "b" then
         if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
       elseif etype == "char" and ev[2]:lower() == "i" then returnScreen = "page" screen = "info" infoScroll = 0
-      elseif etype == "key" and isKey(ev, "esc", 1) then
-        if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
+      elseif etype == "char" and ev[2]:lower() == "q" then break
       elseif etype == "char" and f and fieldEnabled(f) and (f.kind == "number" or f.kind == "float") and ev[2]:match("[%d%.]") then
         editField = f editBuffer = ev[2]
       elseif etype == "char" and f and fieldEnabled(f) and f.kind == "string" and ev[2]:match("[%w%./]") then
@@ -777,7 +774,7 @@ while true do
     elseif etype == "char" and ev[2]:lower() == "b" then screen = "page"
     elseif etype == "char" and ev[2]:lower() == "p" then screen = "save" saveName = "" saveEditing = true
     elseif etype == "char" and ev[2]:lower() == "i" then returnScreen = "summary" screen = "info" infoScroll = 0
-    elseif etype == "key" and isKey(ev, "esc", 1) then screen = "page"
+    elseif etype == "char" and ev[2]:lower() == "q" then break
     elseif etype == "mouse_click" then
       local act = buttonAt(btns, ev[3], ev[4])
       if act == "start" then
@@ -790,9 +787,8 @@ while true do
     if etype == "key" and isKey(ev, "up", 200) then infoScroll = infoScroll - 1
     elseif etype == "key" and isKey(ev, "down", 208) then infoScroll = infoScroll + 1
     elseif etype == "mouse_scroll" then infoScroll = infoScroll + ev[2]
-    elseif etype == "key" and isKey(ev, "esc", 1) then screen = returnScreen
     elseif etype == "char" and ev[2]:lower() == "b" then screen = returnScreen
-    elseif etype == "char" and ev[2]:lower() == "q" then screen = returnScreen
+    elseif etype == "char" and ev[2]:lower() == "q" then break
     elseif etype == "mouse_click" then
       local act = buttonAt(btns, ev[3], ev[4])
       if act == "back" then screen = returnScreen end
@@ -804,8 +800,8 @@ while true do
       if loadList[loadSel] and loadPreset(loadList[loadSel]) then
         if lastMode and lastMode ~= "old" then setMode(lastMode) screen = "page" else screen = "modeSelect" end
       else errorMsg = "Could not load preset" screen = "modeSelect" end
-    elseif etype == "key" and isKey(ev, "esc", 1) then screen = "modeSelect"
     elseif etype == "char" and ev[2]:lower() == "b" then screen = "modeSelect"
+    elseif etype == "char" and ev[2]:lower() == "q" then break
     elseif etype == "mouse_click" then
       local row = ev[4] - 3
       if row >= 1 and row <= #loadList then
@@ -820,20 +816,19 @@ while true do
     elseif etype == "key" and isKey(ev, "backspace", 14) then saveName = saveName:sub(1, -2)
     elseif etype == "key" and isKey(ev, "enter", 28) then
       local name = trim(saveName)
-      if name == "" then errorMsg = "Enter a preset name" screen = "summary"
+      if name == "" then errorMsg = "" screen = "summary"
       elseif name == "current-preset" then errorMsg = "That name is reserved" screen = "summary"
       else
         if name:sub(-4) ~= ".txt" then name = name .. ".txt" end
         if writePreset(name) then errorMsg = "" screen = "summary" else errorMsg = "Could not write preset" screen = "summary" end
       end
       saveEditing = false
-    elseif etype == "key" and isKey(ev, "esc", 1) then saveEditing = false screen = "summary"
     elseif etype == "mouse_click" then
       local act = buttonAt(btns, ev[3], ev[4])
       if act == "cancel" then saveEditing = false screen = "summary"
       elseif act == "save" then
         local name = trim(saveName)
-        if name == "" then errorMsg = "Enter a preset name" screen = "summary"
+        if name == "" then errorMsg = "" screen = "summary"
         elseif name == "current-preset" then errorMsg = "That name is reserved" screen = "summary"
         else
           if name:sub(-4) ~= ".txt" then name = name .. ".txt" end
