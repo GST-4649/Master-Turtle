@@ -1,4 +1,4 @@
-local version = 20251003.1700
+local version = 20261101.1345
 local Scene 		= require("lib.Scene")
 local Button 		= require("lib.ui.Button")
 local MultiButton 	= require("lib.ui.Multibutton")
