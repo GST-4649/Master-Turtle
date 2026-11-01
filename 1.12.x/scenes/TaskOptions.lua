@@ -1,4 +1,4 @@
-local version = 20261101.1345
+local version = 20261101.2100
 local Scene 	= require("lib.Scene")
 local Label 	= require("lib.ui.Label")
 local Multilabel = require("lib.ui.Multilabel")
@@ -231,10 +231,13 @@ Log:saveToLog("TaskOptions:setup:self.task = '"..self.task.."'")
 	self.btnNext:setText("Next")
 	self.lblInfo:setText("number + Enter: set checkbox / textbox")
 --Log:saveToLog("TaskOptions:setup() configuring checkboxes")
-	for _, chk in ipairs(self.checkboxes) do	-- if checked
-		if chk.checked then
-			self:changeData(chk)
-		end
+	-- Apply ALL checkboxes, not just checked ones: ipairs on a
+	-- string-keyed table iterates zero times, so checked defaults
+	-- never reached R, and unchecked boxes never cleared R.
+	-- That left R.goUp true from MainMenu even though Go DOWN
+	-- was checked on screen, so createStaircase skipped its down loop.
+	for _, chk in pairs(self.checkboxes) do
+		self:changeData(chk)
 	end
 --Log:saveToLog("TaskOptions:setup() configuring labels")
 	for _, label in ipairs(self.labels) do	-- if no text in a label set to full width

@@ -1,4 +1,4 @@
-local version = 20261101.1345
+local version = 20261101.2100
 local Scene 		= require("lib.Scene")
 local Button 		= require("lib.ui.Button")
 local MultiButton 	= require("lib.ui.Multibutton")
@@ -626,10 +626,12 @@ Log:saveToLog("MainMenu:onMbClick:START: mb.name = "..mb.name..", U.subMenuName 
 				-- setup captions for controls default is mining.ladder / stairs
 				if mb.selectedButtonName == self.m1[1] then -- ladder
 					R.goDown = true	-- down is default direction
+					R.goUp = false
 					R.auto = true	-- stop at stronghold/trial chamber
 					U.currentTask = "createLadder"	
 				elseif mb.selectedButtonName == self.m1[2] then -- stairs
-					R.goUp = true
+					R.goDown = true	-- stairs default is down, matching TaskOptions Go DOWN checked
+					R.goUp = false
 					R.auto = true	-- stop at stronghold/trial chamber
 					U.currentTask = "createStaircase"
 				elseif mb.selectedButtonName == self.m1[3] then -- mine at this level

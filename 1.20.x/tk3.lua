@@ -1,4 +1,4 @@
-local version = 20261101.2000
+local version = 20261101.2100
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -6877,6 +6877,15 @@ function createStaircase()
 	end
 	if not R.goDown and not R.goUp then
 		return {"Staircase direction not set, Go UP or Go DOWN was not set"}
+	end
+	if R.goDown and R.goUp then
+		return {"Staircase direction conflict, both Go UP and Go DOWN are set"}
+	end
+	if R.goDown and R.destinationLevel >= R.startLevel then
+		return {"Staircase Go DOWN but destination "..R.destinationLevel.." is not below start "..R.startLevel}
+	end
+	if R.goUp and R.destinationLevel <= R.startLevel then
+		return {"Staircase Go UP but destination "..R.destinationLevel.." is not above start "..R.startLevel}
 	end
 	R.currentLevel = R.startLevel	-- eg 64 going down
 	local numSlabsNeeded = (R.height * 2) - numSlabs -- addSlabs places 2 slabs per level
