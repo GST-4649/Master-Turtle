@@ -1,4 +1,4 @@
-local version = 20261101.1900
+local version = 20261101.2000
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -6924,20 +6924,22 @@ function createStaircase()
 				break
 			end
 		end
+		-- Log before any early return, so log.txt always has this line.
+		Log:saveToLog("createStaircase() downMoves = "..downMoves..", currentLevel = "..R.currentLevel..", block below = "..tostring(blockType)..", error = "..tostring(errorMsg)..", atBedrock = "..tostring(atBedrock))
+		-- Fail safe, outside the atBedrock branch: a 122 level staircase
+		-- cannot be completed after only a few downs, for any reason.
+		-- The 1900 guard only ran inside atBedrock, so a run that
+		-- completed in 8 seconds must have exited the down loop
+		-- without firing it, or with a bedrock block at surface level.
+		-- Allow only a real bedrock finish, current level at or
+		-- below -59, or an intentional stronghold/trial stop.
+		if downMoves < R.height and #retValue == 0 and R.currentLevel > -59 then
+			return {"Staircase stopped after "..downMoves.." of "..R.height.." downs, level "..R.currentLevel..", block below: "..tostring(blockType)..", error: "..tostring(errorMsg)}
+		end
 		if atBedrock then -- hit bedrock so get to level 5 / -59
-			-- A failed down move is only bedrock if the block below is
-			-- bedrock, or the turtle is already at bedrock level. Any
-			-- other early stop must not build a tiny staircase and
-			-- call it completed: that is the "up twice, forward, turns,
-			-- stop" run Daniel saw, where downMoves was only a few
-			-- and the rest of the loops then had almost nothing to do.
-			if downMoves < R.height and (blockType or ""):find("bedrock") == nil then
-				return {"Staircase stopped after "..downMoves.." of "..R.height.." downs, block below: "..tostring(blockType)..", error: "..tostring(errorMsg)}
-			end
 			R.currentLevel = T:findBedrockTop(R.currentLevel)
 			T:go("R1F1R1", false, 0, true)
 		end
-		Log:saveToLog("createStaircase() downMoves = "..downMoves..", currentLevel = "..R.currentLevel)
 		-- re-calculate start and destination levels
 		R.destinationLevel = R.startLevel
 		R.startLevel = R.currentLevel
