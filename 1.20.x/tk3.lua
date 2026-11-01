@@ -1,4 +1,4 @@
-local version = 20261101.1800
+local version = 20261101.1900
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -6925,13 +6925,14 @@ function createStaircase()
 			end
 		end
 		if atBedrock then -- hit bedrock so get to level 5 / -59
-			if downMoves == 0 and (blockType or ""):find("bedrock") == nil then
-				-- did not move at all, and the block below is not bedrock:
-				-- do not silently finish as completed. Old code treated any
-				-- failed first move as bedrock, then set start equal to
-				-- destination, so every later loop was a no-op and it
-				-- still returned "Staircase completed".
-				return {"Staircase did not move down, block below: "..tostring(blockType)..", error: "..tostring(errorMsg)}
+			-- A failed down move is only bedrock if the block below is
+			-- bedrock, or the turtle is already at bedrock level. Any
+			-- other early stop must not build a tiny staircase and
+			-- call it completed: that is the "up twice, forward, turns,
+			-- stop" run Daniel saw, where downMoves was only a few
+			-- and the rest of the loops then had almost nothing to do.
+			if downMoves < R.height and (blockType or ""):find("bedrock") == nil then
+				return {"Staircase stopped after "..downMoves.." of "..R.height.." downs, block below: "..tostring(blockType)..", error: "..tostring(errorMsg)}
 			end
 			R.currentLevel = T:findBedrockTop(R.currentLevel)
 			T:go("R1F1R1", false, 0, true)
