@@ -1,0 +1,849 @@
+version = 20261101.0200
+-- quarry-ui: preset builder and TUI for the Master Turtle quarry.
+-- Wrapper only. It writes current-preset.txt, then runs quarry with
+-- that preset. It never edits quarry, and it never edits its save file.
+-- Plain term UI, so it works standalone and from the Master Turtle
+-- launcher, on a normal turtle with keyboard only and on an advanced
+-- turtle with mouse clicks and color. Lua 5.1 clean: no goto, no
+-- integer division operator, no native bitwise operators.
+local unpack = table.unpack or unpack
+
+local W, H = term.getSize()
+local isColor = false
+if term.isColor then isColor = term.isColor() end
+
+local function col(name)
+  if isColor then return colors[name] or colors.white end
+  if name == "black" then return colors.black end
+  if name == "gray" or name == "lightGray" then return colors.lightGray end
+  return colors.white
+end
+
+local function setFG(name) term.setTextColor(col(name)) end
+local function setBG(name) term.setBackgroundColor(col(name)) end
+local function clearAll() setBG("black") setFG("white") term.clear() term.setCursorPos(1, 1) end
+local function put(x, y, text, fg, bg)
+  if x < 1 or y < 1 or y > H then return end
+  term.setCursorPos(x, y)
+  if fg then setFG(fg) end
+  if bg then setBG(bg) end
+  term.write(text)
+end
+local function center(y, text, fg)
+  local x = math.floor((W - #text) / 2) + 1
+  if x < 1 then x = 1 end
+  put(x, y, text, fg, "black")
+end
+local function trim(s) return (tostring(s or "")):gsub("^%s+", ""):gsub("%s+$", "") end
+local function clamp(n, lo, hi)
+  if lo and n < lo then return lo end
+  if hi and n > hi then return hi end
+  return n
+end
+
+-- Field model. kind: bool, boolForce, number, float, string.
+-- page: 1 Size, 2 Direction, 3 Fuel, 4 Chest, 5 Ore, 6 Network, 7 Logging, 8 Recovery.
+-- def: quarry default. For send/receive/maxFuel/startY/startDown, 0 means auto or unset.
+local fields = {}
+local function F(key, label, flag, kind, page, def, minv, maxv, step)
+  local f = {key = key, label = label, flag = flag, kind = kind, page = page, def = def, value = def, minv = minv, maxv = maxv, step = step or 1}
+  fields[#fields + 1] = f
+  return f
+end
+
+F("length", "Length", "-dim", "number", 1, 3, 1, nil, 1)
+F("width", "Width", "-dim", "number", 1, 3, 1, nil, 1)
+F("height", "Height", "-dim", "number", 1, 3, 1, nil, 1)
+F("invert", "Mine upward", "-invert", "bool", 2, false)
+F("flatBedrock", "Go to bedrock first", "-flatBedrock", "bool", 2, false)
+F("startDown", "Start down (0 = top)", "-startDown", "number", 2, 0, 0, 256, 1)
+F("left", "Quarry to the left", "-left", "bool", 2, false)
+F("startY", "Start Y (0 = unset)", "-startY", "number", 2, 0, 0, 256, 1)
+F("maxTries", "Tries before bedrock", "-maxTries", "number", 2, 200, 1, 9001, 1)
+F("doRefuel", "Refuel from inventory", "-doRefuel", "bool", 3, false)
+F("doCheckFuel", "Check fuel", "-doCheckFuel", "bool", 3, true)
+F("fuelMultiplier", "Fuel multiplier", "-fuelMultiplier", "float", 3, 1, 1, 9001, 1)
+F("maxFuel", "Max fuel (0 = turtle limit)", "-maxFuel", "number", 3, 0, 0, 999999999, 100)
+F("uniqueExtras", "Unique items", "-uniqueExtras", "number", 3, 8, 0, 15, 1)
+F("fuelChest", "Use fuel chest", "-fuelChest", "bool", 3, false)
+F("lavaBucket", "Use lava bucket", "-lavaBucket", "bool", 3, false)
+F("lavaBuffer", "Lava buffer", "-lavaBuffer", "number", 3, 500, 1, 19999, 100)
+F("quad", "Use quad rotor", "-quad", "bool", 3, false)
+F("quadTimeout", "Quad wait seconds", "-quadTimeout", "number", 3, 300, 1, 1000000, 60)
+F("keepOpen", "Slots to keep open", "-keepOpen", "number", 4, 1, 1, 15, 1)
+F("careAboutResources", "Care about resources", "-careAboutResources", "bool", 4, true)
+F("enderChest", "Use ender chest", "-enderChest", "bool", 4, false)
+F("oreQuarry", "Ore quarry only", "-oreQuarry", "bool", 5, false)
+F("oldOreQuarry", "Old ore quarry", "-oldOreQuarry", "bool", 5, false)
+F("blacklist", "Ore blacklist file", "-blacklist", "string", 5, "oreQuarryBlacklist.txt")
+F("dumpCompareItems", "Dump compare items", "-dumpCompareItems", "bool", 5, true)
+F("extraDropItems", "Extra drop items", "-extraDropItems", "boolForce", 5, false)
+F("compareChest", "Use compare chest", "-compareChest", "bool", 5, false)
+F("frontChest", "Check front for chests", "-frontChest", "bool", 5, false)
+F("rednet", "Rednet reports", "-rednet", "bool", 6, false)
+F("sendChannel", "Send channel (0 = auto)", "-sendChannel", "number", 6, 0, 0, 65535, 1)
+F("receiveChannel", "Receive channel (0 = auto)", "-receiveChannel", "number", 6, 0, 0, 65535, 1)
+F("fingerprint", "Sending fingerprint", "-fingerprint", "string", 6, "quarry")
+F("legacyRednet", "Legacy rednet", "-legacyRednet", "bool", 6, false)
+F("gps", "Use GPS", "-GPS", "boolForce", 6, false)
+F("logging", "Logging", "-logging", "bool", 7, true)
+F("preciseTotals", "Precise totals", "-preciseTotals", "bool", 7, false)
+F("logFolder", "Log folder", "-logFolder", "string", 7, "Quarry_Logs")
+F("logExtension", "Log extension", "-logExtension", "string", 7, "")
+F("doBackup", "Backup save file", "-doBackup", "bool", 7, true)
+F("saveFile", "Save file name", "-saveFile", "string", 7, "Civil_Quarry_Restore")
+F("autoResume", "Auto resume", "-autoResume", "bool", 7, true)
+F("startupRename", "Startup rename file", "-startupRename", "string", 7, "oldStartup.quarry")
+F("startupName", "Startup file", "-startupName", "string", 7, "startup")
+F("manualPosEnabled", "Use manual position", "-manualPos", "bool", 8, false)
+F("manualX", "Manual X", "-manualPos", "number", 8, 0, 0, nil, 1)
+F("manualZ", "Manual Z", "-manualPos", "number", 8, 1, 0, nil, 1)
+F("manualY", "Manual Y", "-manualPos", "number", 8, 1, 0, nil, 1)
+F("manualFacing", "Manual facing 0-3", "-manualPos", "number", 8, 0, 0, 3, 1)
+F("atChest", "Is at chest", "-atChest", "boolForce", 8, false)
+
+local byKey = {}
+for _, f in ipairs(fields) do byKey[f.key] = f end
+local byLower = {}
+for _, f in ipairs(fields) do byLower[f.key:lower()] = f end
+local function get(key) return byKey[key] end
+local function val(key) return byKey[key].value end
+local function setVal(key, v) byKey[key].value = v end
+
+local pageTitles = {"Size", "Direction", "Fuel", "Chest and inventory", "Ore", "Network and GPS", "Logging and resume", "Recovery"}
+local function fieldsOnPage(p)
+  local out = {}
+  for _, f in ipairs(fields) do if f.page == p then out[#out + 1] = f end end
+  return out
+end
+local modePages = {easy = {1, 2, 5}, advanced = {1, 2, 3, 5, 6}, total = {1, 2, 3, 4, 5, 6, 7, 8}}
+local modeNames = {easy = "Easy", advanced = "Advanced", total = "Total control", old = "Old"}
+
+-- Gating, mirroring quarry triggers and the approved plan.
+local function fieldEnabled(f)
+  local k = f.key
+  if k == "invert" then return not val("flatBedrock") end
+  if k == "startDown" then return not val("flatBedrock") end
+  if k == "maxFuel" then return val("fuelChest") end
+  if k == "lavaBuffer" then return val("lavaBucket") end
+  if k == "quadTimeout" then return val("quad") end
+  if k == "quad" then return val("rednet") end
+  if k == "gps" then return val("rednet") end
+  if k == "sendChannel" or k == "receiveChannel" or k == "fingerprint" then return val("rednet") end
+  if k == "preciseTotals" then return val("rednet") end
+  if k == "blacklist" or k == "lavaBucket" then return val("oreQuarry") end
+  if k == "compareChest" or k == "dumpCompareItems" or k == "extraDropItems" then return val("oldOreQuarry") end
+  if k == "startupRename" or k == "startupName" then return val("autoResume") end
+  if k == "manualX" or k == "manualZ" or k == "manualY" or k == "manualFacing" then return val("manualPosEnabled") end
+  return true
+end
+
+local function applyToggles()
+  if val("flatBedrock") then setVal("invert", false) end
+  if val("quad") then setVal("rednet", true) setVal("gps", true) end
+  if not val("rednet") then setVal("quad", false) setVal("gps", false) end
+end
+
+local function displayValue(f)
+  if f.kind == "bool" or f.kind == "boolForce" then return f.value and "[X]" or "[ ]" end
+  return tostring(f.value)
+end
+
+-- Preset writer. One parameter per line, quarry -file format.
+local function presetLines()
+  local lines = {}
+  lines[#lines + 1] = "dim " .. tostring(val("length")) .. " " .. tostring(val("width")) .. " " .. tostring(val("height"))
+  for _, f in ipairs(fields) do
+    if f.key ~= "length" and f.key ~= "width" and f.key ~= "height" and f.key ~= "manualPosEnabled" and f.key ~= "manualX" and f.key ~= "manualZ" and f.key ~= "manualY" and f.key ~= "manualFacing" then
+      if f.kind == "boolForce" then
+        if f.value then lines[#lines + 1] = f.key end
+      elseif f.kind == "bool" then
+        lines[#lines + 1] = f.key .. " " .. (f.value and "true" or "false")
+      elseif f.kind == "number" or f.kind == "float" then
+        if not ((f.key == "sendChannel" or f.key == "receiveChannel" or f.key == "maxFuel" or f.key == "startY" or f.key == "startDown") and f.value == 0) then
+          lines[#lines + 1] = f.key .. " " .. tostring(f.value)
+        end
+      elseif f.kind == "string" then
+        if f.value ~= "" then lines[#lines + 1] = f.key .. " " .. f.value end
+      end
+    end
+  end
+  if val("manualPosEnabled") then
+    lines[#lines + 1] = "manualPos " .. tostring(val("manualX")) .. " " .. tostring(val("manualZ")) .. " " .. tostring(val("manualY")) .. " " .. tostring(val("manualFacing"))
+  end
+  return lines
+end
+
+local function writeFile(path, lines)
+  local h = fs.open(path, "w")
+  if not h then return false end
+  for _, line in ipairs(lines) do h.writeLine(line) end
+  h.close()
+  return true
+end
+
+local function writePreset(path) return writeFile(path, presetLines()) end
+
+local function parseBool(s)
+  local c = (tostring(s or "")):sub(1, 1):lower()
+  if c == "t" or c == "y" then return true end
+  if c == "f" or c == "n" then return false end
+  return nil
+end
+
+local aliases = {overfuel = "fuelMultiplier", fuelrequestmultiplier = "fuelMultiplier", autorestart = "autoResume", autorestore = "autoResume", lava = "lavaBucket", lavarefuel = "lavaBucket", blacklistfile = "blacklist", extradumpitems = "extraDropItems"}
+local function loadPreset(path)
+  local h = fs.open(path, "r")
+  if not h then return false end
+  local text = h.readAll()
+  h.close()
+  for line in text:gmatch("[^\n]+") do
+    line = trim(line)
+    if line ~= "" and line:sub(1, 1) ~= "#" then
+      local words = {}
+      for w in line:gmatch("%S+") do words[#words + 1] = w end
+      if #words >= 1 then
+        local key = words[1]:gsub("^%-", ""):lower()
+        if key == "dim" and #words >= 4 then
+          local a, b, c = tonumber(words[2]), tonumber(words[3]), tonumber(words[4])
+          if a and a >= 1 then setVal("length", math.floor(a)) end
+          if b and b >= 1 then setVal("width", math.floor(b)) end
+          if c and c >= 1 then setVal("height", math.floor(c)) end
+        elseif key == "manualpos" and #words >= 5 then
+          local a, b, c, d = tonumber(words[2]), tonumber(words[3]), tonumber(words[4]), tonumber(words[5])
+          if a and b and c and d then
+            setVal("manualPosEnabled", true)
+            setVal("manualX", math.floor(a)) setVal("manualZ", math.floor(b)) setVal("manualY", math.floor(c)) setVal("manualFacing", math.floor(d))
+          end
+        else
+          key = aliases[key] or key
+          local f = byLower[key]
+          if f then
+            if f.kind == "boolForce" then f.value = true
+            elseif f.kind == "bool" and #words >= 2 then local v = parseBool(words[2]) if v ~= nil then f.value = v end
+            elseif (f.kind == "number" or f.kind == "float") and #words >= 2 then
+              local n = tonumber(words[2])
+              if n then
+                if f.kind == "number" then n = math.floor(n) end
+                f.value = clamp(n, f.minv, f.maxv)
+              end
+            elseif f.kind == "string" and #words >= 2 then f.value = words[2] end
+          end
+        end
+      end
+    end
+  end
+  applyToggles()
+  return true
+end
+
+local function listPresets()
+  local out = {}
+  if fs.list then
+    for _, name in ipairs(fs.list("")) do
+      if name:sub(-4) == ".txt" and name ~= "current-preset.txt" then out[#out + 1] = name end
+    end
+    table.sort(out)
+  end
+  return out
+end
+
+local function saveFileAtStart()
+  if fs.exists("Civil_Quarry_Restore") then return true end
+  return false
+end
+
+-- Help text for the Info screen. Plain English, flag, what it does, default.
+local helpLines = {}
+local function addHelp(label, flag, text, def)
+  helpLines[#helpLines + 1] = label .. " (" .. flag .. "): " .. text .. " Default: " .. def .. "."
+end
+addHelp("Length, Width, Height", "-dim", "Size of the quarry in blocks, length by width by height down.", "3 by 3 by 3")
+addHelp("Mine upward", "-invert", "Mine upward instead of downward.", "off")
+addHelp("Go to bedrock first", "-flatBedrock", "Find bedrock and start there. Forces mine upward off.", "off")
+addHelp("Start down", "-startDown", "Go down this many blocks before starting. 0 means start at the top.", "0")
+addHelp("Quarry to the left", "-left", "Quarry to the left instead of the right.", "off")
+addHelp("Start Y", "-startY", "Your current Y, used for bedrock detection. 0 means unset.", "0")
+addHelp("Tries before bedrock", "-maxTries", "Dig attempts before a block counts as bedrock.", "200")
+addHelp("Refuel from inventory", "-doRefuel", "Burn coal or planks found while mining.", "off")
+addHelp("Check fuel", "-doCheckFuel", "Check fuel use as it digs.", "on")
+addHelp("Fuel multiplier", "-fuelMultiplier", "Multiply the fuel estimate when fuel is low.", "1")
+addHelp("Max fuel", "-maxFuel", "How much fuel to take, up to the turtle limit. 0 means turtle limit. Needs a fuel chest to edit here.", "turtle limit")
+addHelp("Unique items", "-uniqueExtras", "Slots reserved for low stacking items. More means more fuel requested.", "8")
+addHelp("Use fuel chest", "-fuelChest", "Refuel from a chest in the default fuel slot.", "off")
+addHelp("Use lava bucket", "-lavaBucket", "Fill an empty bucket from lava found while ore mining.", "off")
+addHelp("Lava buffer", "-lavaBuffer", "Fuel below the limit to wait for before using lava again.", "500")
+addHelp("Use quad rotor", "-quad", "Ask a quad rotor for fuel. Needs rednet and GPS.", "off")
+addHelp("Quad wait seconds", "-quadTimeout", "How long to wait for a quad rotor.", "300")
+addHelp("Slots to keep open", "-keepOpen", "Inventory slots kept open at all times.", "1")
+addHelp("Care about resources", "-careAboutResources", "If off, keep mining when the inventory is full.", "on")
+addHelp("Use ender chest", "-enderChest", "Drop off to an ender chest in the default slot.", "off")
+addHelp("Ore quarry only", "-oreQuarry", "Mine only ores, ignore common blocks.", "off")
+addHelp("Old ore quarry", "-oldOreQuarry", "Legacy mode using compare blocks in the inventory.", "off")
+addHelp("Ore blacklist file", "-blacklist", "File of block names to treat as non ore.", "oreQuarryBlacklist.txt")
+addHelp("Dump compare items", "-dumpCompareItems", "Dump compare blocks instead of storing them.", "on")
+addHelp("Extra drop items", "-extraDropItems", "In old ore mode, ask for extra items to drop at start.", "off")
+addHelp("Use compare chest", "-compareChest", "Use a chest in the default slot for compare blocks.", "off")
+addHelp("Check front for chests", "-frontChest", "Also check in front for chests while ore mining.", "off")
+addHelp("Rednet reports", "-rednet", "Send progress over rednet. Needs a modem.", "off")
+addHelp("Send and receive channels", "-sendChannel, -receiveChannel", "Rednet channels. 0 means auto, computer ID plus 1 and plus 101.", "auto")
+addHelp("Sending fingerprint", "-fingerprint", "Name sent with rednet messages.", "quarry")
+addHelp("Legacy rednet", "-legacyRednet", "Old rednet mode for very old ComputerCraft.", "off")
+addHelp("Use GPS", "-GPS", "Use GPS for position on a fresh run.", "off")
+addHelp("Logging", "-logging", "Write a log at the end of the run.", "on")
+addHelp("Precise totals", "-preciseTotals", "Record exact totals for every block mined. Needs rednet and inspect.", "off")
+addHelp("Log folder and extension", "-logFolder, -logExtension", "Where logs go, and their file extension.", "Quarry_Logs, none")
+addHelp("Backup save file", "-doBackup", "Keep the restore file, so a run can resume.", "on")
+addHelp("Save file name", "-saveFile", "Name of the restore file.", "Civil_Quarry_Restore")
+addHelp("Auto resume", "-autoResume", "Resume on boot with a startup file.", "on")
+addHelp("Startup rename and file", "-startupRename, -startupName", "What to rename an old startup to, and what to save the resume startup as.", "oldStartup.quarry, startup")
+addHelp("Use manual position", "-manualPos", "Set the turtle position by hand for recovery. Use with care.", "off")
+addHelp("Is at chest", "-atChest", "Tell a resuming turtle it is already at home.", "off")
+
+-- State
+local saveFound = saveFileAtStart()
+local lastMode = nil
+do
+  local h = fs.open("quarry-ui-last-mode.txt", "r")
+  if h then
+    local t = trim(h.readAll())
+    h.close()
+    if modeNames[t] then lastMode = t end
+  end
+end
+local screen = "modeSelect"
+if saveFound then screen = "resume" end
+if not saveFound and lastMode then screen = "modeQuick" end
+local mode = nil
+local pages = {}
+local pageIdx = 1
+local fieldSel = 1
+local pageScroll = 0
+local editField = nil
+local editBuffer = ""
+local errorMsg = ""
+local summaryScroll = 0
+local infoScroll = 0
+local returnScreen = "modeSelect"
+local modeSel = 1
+local loadList = {}
+local loadSel = 1
+local saveName = ""
+local saveEditing = false
+local resumeTimer = nil
+if screen == "resume" and os.startTimer then resumeTimer = os.startTimer(5) end
+
+local function currentPageFields()
+  local p = pages[pageIdx] or 1
+  return fieldsOnPage(p)
+end
+
+local function setMode(m)
+  mode = m
+  if m == "old" then
+    pages = {}
+  else
+    pages = modePages[m]
+  end
+  pageIdx = 1
+  fieldSel = 1
+  pageScroll = 0
+  writeFile("quarry-ui-last-mode.txt", {m})
+end
+
+local function summaryLines()
+  local out = {}
+  out[#out + 1] = "Size: " .. tostring(val("length")) .. " by " .. tostring(val("width")) .. " by " .. tostring(val("height")) .. " (-dim)"
+  for _, f in ipairs(fields) do
+    if f.key ~= "length" and f.key ~= "width" and f.key ~= "height" then
+      if f.value ~= f.def then
+        if f.kind == "boolForce" then
+          if f.value then out[#out + 1] = f.label .. " = on (" .. f.flag .. ")" end
+        else
+          out[#out + 1] = f.label .. " = " .. tostring(f.value) .. " (" .. f.flag .. ")"
+        end
+      end
+    end
+  end
+  if #out == 1 then out[#out + 1] = "All other values are quarry defaults." end
+  if val("atChest") and not saveFound then out[#out + 1] = "Warning: At chest is on but no save file was found at start." end
+  return out
+end
+
+local function drawButtons(btns)
+  for _, b in ipairs(btns) do
+    put(b.x, b.y, b.label, b.fg or "black", b.bg or "lime")
+  end
+  return btns
+end
+
+local function drawHeader(title)
+  clearAll()
+  center(1, "QUARRY UI", "yellow")
+  center(2, title, "white")
+end
+
+local function drawFooter(hint, btns)
+  if errorMsg ~= "" then put(1, H - 2, errorMsg:sub(1, W), "red", "black") end
+  if btns then drawButtons(btns) end
+  if hint then put(1, H, hint:sub(1, W), "lightGray", "black") end
+end
+
+local function finishEdit(accept)
+  local f = editField
+  editField = nil
+  if not f or not accept then editBuffer = "" return end
+  local buf = trim(editBuffer)
+  editBuffer = ""
+  if f.kind == "number" or f.kind == "float" then
+    local n = tonumber(buf)
+    if not n then errorMsg = "Enter a number for " .. f.label return end
+    if f.kind == "number" then n = math.floor(n) end
+    if (f.minv and n < f.minv) or (f.maxv and n > f.maxv) then errorMsg = "Out of range for " .. f.label return end
+    f.value = n
+    errorMsg = ""
+  elseif f.kind == "string" then
+    if buf == "" then
+      if f.key == "logExtension" then f.value = "" errorMsg = "" else errorMsg = "Enter a value for " .. f.label end
+      return
+    end
+    if not buf:match("^[%w%./]+$") then errorMsg = "Use letters, numbers, dot or slash for " .. f.label return end
+    f.value = buf
+    errorMsg = ""
+  end
+  applyToggles()
+end
+
+local function drawPage()
+  local pfields = currentPageFields()
+  local title = "Mode: " .. (modeNames[mode] or "") .. "  Page " .. tostring(pageIdx) .. " of " .. tostring(#pages) .. ": " .. pageTitles[pages[pageIdx] or 1]
+  drawHeader(title)
+  local visible = H - 5
+  if visible < 1 then visible = 1 end
+  if fieldSel < 1 then fieldSel = 1 end
+  if fieldSel > #pfields then fieldSel = #pfields end
+  if fieldSel <= pageScroll then pageScroll = fieldSel - 1 end
+  if fieldSel > pageScroll + visible then pageScroll = fieldSel - visible end
+  for i = pageScroll + 1, math.min(#pfields, pageScroll + visible) do
+    local f = pfields[i]
+    local y = 3 + (i - pageScroll - 1)
+    local sel = (i == fieldSel)
+    local bg = sel and "lightGray" or "black"
+    local fg = "white"
+    if not fieldEnabled(f) then fg = "gray" end
+    put(2, y, f.label, fg, bg)
+    local vx = 30
+    if f.kind == "bool" or f.kind == "boolForce" then
+      put(vx, y, displayValue(f), f.value and "green" or "gray", bg)
+    else
+      local vtext = displayValue(f)
+      if editField == f then vtext = editBuffer .. "_" end
+      put(vx, y, vtext, fg, bg)
+      if f.kind == "number" or f.kind == "float" then
+        local mx = W - 8
+        local px = W - 4
+        if mx > vx + 2 then
+          put(mx, y, "[-]", "white", bg)
+          put(px, y, "[+]", "white", bg)
+        end
+      end
+    end
+  end
+  local nextLabel = "Next"
+  if pageIdx >= #pages then nextLabel = "Summary" end
+  local btns = {
+    {x = 2, y = H - 1, label = "[Back]", bg = "gray", action = "back"},
+    {x = 12, y = H - 1, label = "[Info]", bg = "blue", fg = "white", action = "info"},
+    {x = W - 11, y = H - 1, label = "[" .. nextLabel .. "]", bg = "lime", action = "next"},
+  }
+  drawFooter("Up/Down select, Space toggle, Enter edit, +/- adjust, N next, B back, I info", btns)
+  return btns
+end
+
+local function drawSummary()
+  local lines = summaryLines()
+  drawHeader("Summary: check before Start")
+  local visible = H - 5
+  if visible < 1 then visible = 1 end
+  if summaryScroll < 0 then summaryScroll = 0 end
+  if summaryScroll > math.max(0, #lines - visible) then summaryScroll = math.max(0, #lines - visible) end
+  for i = summaryScroll + 1, math.min(#lines, summaryScroll + visible) do
+    local y = 3 + (i - summaryScroll - 1)
+    local fg = "white"
+    if lines[i]:sub(1, 7) == "Warning" then fg = "red" end
+    put(2, y, lines[i]:sub(1, W - 2), fg, "black")
+  end
+  local btns = {
+    {x = 2, y = H - 1, label = "[Start]", bg = "lime", action = "start"},
+    {x = 11, y = H - 1, label = "[Back]", bg = "gray", action = "back"},
+    {x = 20, y = H - 1, label = "[Save]", bg = "blue", fg = "white", action = "save"},
+    {x = 29, y = H - 1, label = "[Info]", bg = "blue", fg = "white", action = "info"},
+  }
+  drawFooter("S start, B back, P save preset, I info, Up/Down scroll", btns)
+  return btns
+end
+
+local function drawInfo()
+  drawHeader("Info: what the flags do")
+  local visible = H - 5
+  if visible < 1 then visible = 1 end
+  if infoScroll < 0 then infoScroll = 0 end
+  if infoScroll > math.max(0, #helpLines - visible) then infoScroll = math.max(0, #helpLines - visible) end
+  for i = infoScroll + 1, math.min(#helpLines, infoScroll + visible) do
+    local y = 3 + (i - infoScroll - 1)
+    put(2, y, helpLines[i]:sub(1, W - 2), "white", "black")
+  end
+  local btns = {{x = 2, y = H - 1, label = "[Back]", bg = "gray", action = "back"}}
+  drawFooter("Up/Down scroll, Esc back", btns)
+  return btns
+end
+
+local function drawModeQuick()
+  drawHeader("Quarry UI")
+  center(4, "Use last mode: " .. (modeNames[lastMode] or ""), "white")
+  center(5, "Press Enter to use it, or C to change it.", "lightGray")
+  local btns = {
+    {x = 12, y = 7, label = "[Use last]", bg = "lime", action = "use"},
+    {x = 26, y = 7, label = "[Change]", bg = "gray", action = "change"},
+  }
+  drawFooter("Enter use, C change, Q quit", btns)
+  return btns
+end
+
+local function drawModeSelect()
+  drawHeader("Choose a mode")
+  local rows = {"Easy: pages 1, 2, 5", "Advanced: pages 1, 2, 3, 5, 6", "Total control: all pages", "Old: original quarry, no TUI", "Load preset", "Info", "Quit"}
+  if modeSel < 1 then modeSel = 1 end
+  if modeSel > #rows then modeSel = #rows end
+  for i, row in ipairs(rows) do
+    local bg = (i == modeSel) and "lightGray" or "black"
+    put(2, 3 + i, row, "white", bg)
+  end
+  drawFooter("Up/Down select, Enter choose, Q quit", nil)
+  return rows
+end
+
+local function drawLoad()
+  drawHeader("Load preset")
+  if #loadList == 0 then put(2, 4, "No named presets found.", "lightGray", "black") end
+  if loadSel < 1 then loadSel = 1 end
+  if loadSel > #loadList then loadSel = #loadList end
+  for i, name in ipairs(loadList) do
+    local bg = (i == loadSel) and "lightGray" or "black"
+    put(2, 3 + i, name, "white", bg)
+  end
+  drawFooter("Up/Down select, Enter load, Esc back", nil)
+end
+
+local function drawSave()
+  drawHeader("Save as preset")
+  put(2, 4, "Preset name (no spaces):", "white", "black")
+  local txt = saveName
+  if saveEditing then txt = txt .. "_" end
+  put(2, 5, txt, "white", "black")
+  local btns = {
+    {x = 2, y = H - 1, label = "[Save]", bg = "lime", action = "save"},
+    {x = 11, y = H - 1, label = "[Cancel]", bg = "gray", action = "cancel"},
+  }
+  drawFooter("Type a name, Enter save, Esc cancel", btns)
+  return btns
+end
+
+local function launchQuarry(args)
+  clearAll()
+  put(1, 1, "Starting quarry...", "white", "black")
+  local ok, err = shell.run("quarry", unpack(args))
+  if not ok then
+    errorMsg = "Quarry failed: " .. tostring(err)
+    return false
+  end
+  return true
+end
+
+local function doStart()
+  if not writePreset("current-preset.txt") then
+    errorMsg = "Could not write current-preset.txt"
+    return false
+  end
+  return launchQuarry({"-file", "current-preset.txt", "-default"})
+end
+
+local function isKey(ev, name, code)
+  if keys and keys[name] then return ev[2] == keys[name] end
+  return ev[2] == code
+end
+local function buttonAt(btns, x, y)
+  if not btns then return nil end
+  for _, b in ipairs(btns) do
+    if y == b.y and x >= b.x and x < b.x + #b.label then return b.action end
+  end
+  return nil
+end
+local function moveSelection(dir)
+  local pfields = currentPageFields()
+  local i = fieldSel + dir
+  while i >= 1 and i <= #pfields and not fieldEnabled(pfields[i]) do i = i + dir end
+  if i >= 1 and i <= #pfields then fieldSel = i end
+end
+
+while true do
+  local btns = nil
+  if screen == "resume" then
+    clearAll()
+    center(4, "QUARRY UI", "yellow")
+    center(6, "Resuming quarry run...", "white")
+    center(7, "Press any key to stop and choose a mode.", "lightGray")
+    center(8, "Resuming in 5 seconds if you do nothing.", "lightGray")
+  elseif screen == "modeQuick" then btns = drawModeQuick()
+  elseif screen == "modeSelect" then drawModeSelect()
+  elseif screen == "page" then btns = drawPage()
+  elseif screen == "summary" then btns = drawSummary()
+  elseif screen == "info" then btns = drawInfo()
+  elseif screen == "load" then drawLoad()
+  elseif screen == "save" then btns = drawSave()
+  end
+
+  local ev = {os.pullEvent()}
+  local etype = ev[1]
+  local done = false
+
+  if screen == "resume" then
+    if etype == "timer" and ev[2] == resumeTimer then
+      if launchQuarry({"-resume"}) then break end
+      screen = lastMode and "modeQuick" or "modeSelect"
+    elseif etype == "key" or etype == "char" or etype == "mouse_click" then
+      screen = lastMode and "modeQuick" or "modeSelect"
+    end
+  elseif screen == "modeQuick" then
+    if etype == "key" and isKey(ev, "enter", 28) then
+      if lastMode == "old" then
+        setMode("old")
+        if launchQuarry({}) then break end
+        screen = "modeSelect"
+      else
+        setMode(lastMode)
+        screen = "page"
+      end
+    elseif etype == "char" and ev[2]:lower() == "c" then
+      screen = "modeSelect" modeSel = 1
+    elseif etype == "char" and ev[2]:lower() == "q" then break
+    elseif etype == "key" and isKey(ev, "esc", 1) then break
+    elseif etype == "mouse_click" then
+      local act = buttonAt(btns, ev[3], ev[4])
+      if act == "use" then
+        if lastMode == "old" then
+          setMode("old")
+          if launchQuarry({}) then break end
+          screen = "modeSelect"
+        else
+          setMode(lastMode)
+          screen = "page"
+        end
+      elseif act == "change" then screen = "modeSelect" modeSel = 1 end
+    end
+  elseif screen == "modeSelect" then
+    if etype == "key" and isKey(ev, "up", 200) then modeSel = modeSel - 1
+    elseif etype == "key" and isKey(ev, "down", 208) then modeSel = modeSel + 1
+    elseif etype == "key" and isKey(ev, "enter", 28) then
+      if modeSel == 1 then setMode("easy") screen = "page"
+      elseif modeSel == 2 then setMode("advanced") screen = "page"
+      elseif modeSel == 3 then setMode("total") screen = "page"
+      elseif modeSel == 4 then
+        setMode("old")
+        if launchQuarry({}) then break end
+        screen = "modeSelect"
+      elseif modeSel == 5 then loadList = listPresets() loadSel = 1 screen = "load"
+      elseif modeSel == 6 then returnScreen = "modeSelect" screen = "info" infoScroll = 0
+      elseif modeSel == 7 then break end
+    elseif etype == "char" and ev[2]:lower() == "q" then break
+    elseif etype == "key" and isKey(ev, "esc", 1) then break
+    elseif etype == "mouse_click" then
+      local row = ev[4] - 3
+      if row >= 1 and row <= 7 then
+        modeSel = row
+        if row == 1 then setMode("easy") screen = "page"
+        elseif row == 2 then setMode("advanced") screen = "page"
+        elseif row == 3 then setMode("total") screen = "page"
+        elseif row == 4 then
+          setMode("old")
+          if launchQuarry({}) then break end
+          screen = "modeSelect"
+        elseif row == 5 then loadList = listPresets() loadSel = 1 screen = "load"
+        elseif row == 6 then returnScreen = "modeSelect" screen = "info" infoScroll = 0
+        elseif row == 7 then break end
+      end
+    end
+  elseif screen == "page" then
+    local pfields = currentPageFields()
+    local f = pfields[fieldSel]
+    if editField then
+      if etype == "char" then
+        local ch = ev[2]
+        if editField.kind == "number" or editField.kind == "float" then
+          if ch:match("[%d%.]") and #editBuffer < 12 then editBuffer = editBuffer .. ch end
+        elseif editField.kind == "string" then
+          if ch:match("[%w%./]") and #editBuffer < 24 then editBuffer = editBuffer .. ch end
+        end
+      elseif etype == "key" and isKey(ev, "backspace", 14) then editBuffer = editBuffer:sub(1, -2)
+      elseif etype == "key" and isKey(ev, "enter", 28) then finishEdit(true)
+      elseif etype == "key" and isKey(ev, "esc", 1) then finishEdit(false)
+      elseif etype == "key" and isKey(ev, "up", 200) then finishEdit(true) moveSelection(-1)
+      elseif etype == "key" and isKey(ev, "down", 208) then finishEdit(true) moveSelection(1)
+      elseif etype == "mouse_click" then
+        finishEdit(true)
+        local act = buttonAt(btns, ev[3], ev[4])
+        if act == "back" then
+          if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
+        elseif act == "info" then returnScreen = "page" screen = "info" infoScroll = 0
+        elseif act == "next" then
+          if pageIdx < #pages then pageIdx = pageIdx + 1 fieldSel = 1 else screen = "summary" summaryScroll = 0 end
+        else
+          local row = ev[4] - 2 + pageScroll
+          if row >= 1 and row <= #pfields then
+            local nf = pfields[row]
+            if fieldEnabled(nf) then
+              fieldSel = row
+              if nf.kind == "bool" or nf.kind == "boolForce" then nf.value = not nf.value applyToggles() errorMsg = ""
+              elseif nf.kind == "number" or nf.kind == "float" then
+                local mx = W - 8
+                local px = W - 4
+                if ev[3] >= mx and ev[3] < mx + 3 then nf.value = clamp(nf.value - nf.step, nf.minv, nf.maxv)
+                elseif ev[3] >= px and ev[3] < px + 3 then nf.value = clamp(nf.value + nf.step, nf.minv, nf.maxv)
+                else editField = nf editBuffer = tostring(nf.value) end
+              else editField = nf editBuffer = tostring(nf.value) end
+            end
+          end
+        end
+      end
+    else
+      if etype == "key" and isKey(ev, "up", 200) then moveSelection(-1)
+      elseif etype == "key" and isKey(ev, "down", 208) then moveSelection(1)
+      elseif etype == "key" and isKey(ev, "enter", 28) then
+        if f and fieldEnabled(f) then
+          if f.kind == "bool" or f.kind == "boolForce" then f.value = not f.value applyToggles() errorMsg = ""
+          else editField = f editBuffer = tostring(f.value) end
+        end
+      elseif etype == "char" and ev[2] == " " then
+        if f and fieldEnabled(f) and (f.kind == "bool" or f.kind == "boolForce") then f.value = not f.value applyToggles() errorMsg = "" end
+      elseif etype == "char" and ev[2] == "+" then
+        if f and fieldEnabled(f) and (f.kind == "number" or f.kind == "float") then f.value = clamp(f.value + f.step, f.minv, f.maxv) end
+      elseif etype == "char" and ev[2] == "-" then
+        if f and fieldEnabled(f) and (f.kind == "number" or f.kind == "float") then f.value = clamp(f.value - f.step, f.minv, f.maxv) end
+      elseif etype == "char" and ev[2]:lower() == "n" then
+        if pageIdx < #pages then pageIdx = pageIdx + 1 fieldSel = 1 else screen = "summary" summaryScroll = 0 end
+      elseif etype == "key" and isKey(ev, "tab", 15) then
+        if pageIdx < #pages then pageIdx = pageIdx + 1 fieldSel = 1 else screen = "summary" summaryScroll = 0 end
+      elseif etype == "char" and ev[2]:lower() == "b" then
+        if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
+      elseif etype == "char" and ev[2]:lower() == "i" then returnScreen = "page" screen = "info" infoScroll = 0
+      elseif etype == "key" and isKey(ev, "esc", 1) then
+        if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
+      elseif etype == "char" and f and fieldEnabled(f) and (f.kind == "number" or f.kind == "float") and ev[2]:match("[%d%.]") then
+        editField = f editBuffer = ev[2]
+      elseif etype == "char" and f and fieldEnabled(f) and f.kind == "string" and ev[2]:match("[%w%./]") then
+        editField = f editBuffer = ev[2]
+      elseif etype == "mouse_click" then
+        local act = buttonAt(btns, ev[3], ev[4])
+        if act == "back" then
+          if pageIdx > 1 then pageIdx = pageIdx - 1 fieldSel = 1 else screen = lastMode and "modeQuick" or "modeSelect" end
+        elseif act == "info" then returnScreen = "page" screen = "info" infoScroll = 0
+        elseif act == "next" then
+          if pageIdx < #pages then pageIdx = pageIdx + 1 fieldSel = 1 else screen = "summary" summaryScroll = 0 end
+        else
+          local row = ev[4] - 2 + pageScroll
+          if row >= 1 and row <= #pfields then
+            local nf = pfields[row]
+            if fieldEnabled(nf) then
+              fieldSel = row
+              if nf.kind == "bool" or nf.kind == "boolForce" then nf.value = not nf.value applyToggles() errorMsg = ""
+              elseif nf.kind == "number" or nf.kind == "float" then
+                local mx = W - 8
+                local px = W - 4
+                if ev[3] >= mx and ev[3] < mx + 3 then nf.value = clamp(nf.value - nf.step, nf.minv, nf.maxv)
+                elseif ev[3] >= px and ev[3] < px + 3 then nf.value = clamp(nf.value + nf.step, nf.minv, nf.maxv)
+                else editField = nf editBuffer = tostring(nf.value) end
+              else editField = nf editBuffer = tostring(nf.value) end
+            end
+          end
+        end
+      end
+    end
+  elseif screen == "summary" then
+    if etype == "key" and isKey(ev, "up", 200) then summaryScroll = summaryScroll - 1
+    elseif etype == "key" and isKey(ev, "down", 208) then summaryScroll = summaryScroll + 1
+    elseif etype == "mouse_scroll" then summaryScroll = summaryScroll + ev[2]
+    elseif etype == "char" and ev[2]:lower() == "s" then
+      if doStart() then break end
+    elseif etype == "char" and ev[2]:lower() == "b" then screen = "page"
+    elseif etype == "char" and ev[2]:lower() == "p" then screen = "save" saveName = "" saveEditing = true
+    elseif etype == "char" and ev[2]:lower() == "i" then returnScreen = "summary" screen = "info" infoScroll = 0
+    elseif etype == "key" and isKey(ev, "esc", 1) then screen = "page"
+    elseif etype == "mouse_click" then
+      local act = buttonAt(btns, ev[3], ev[4])
+      if act == "start" then
+        if doStart() then break end
+      elseif act == "back" then screen = "page"
+      elseif act == "save" then screen = "save" saveName = "" saveEditing = true
+      elseif act == "info" then returnScreen = "summary" screen = "info" infoScroll = 0 end
+    end
+  elseif screen == "info" then
+    if etype == "key" and isKey(ev, "up", 200) then infoScroll = infoScroll - 1
+    elseif etype == "key" and isKey(ev, "down", 208) then infoScroll = infoScroll + 1
+    elseif etype == "mouse_scroll" then infoScroll = infoScroll + ev[2]
+    elseif etype == "key" and isKey(ev, "esc", 1) then screen = returnScreen
+    elseif etype == "char" and ev[2]:lower() == "b" then screen = returnScreen
+    elseif etype == "char" and ev[2]:lower() == "q" then screen = returnScreen
+    elseif etype == "mouse_click" then
+      local act = buttonAt(btns, ev[3], ev[4])
+      if act == "back" then screen = returnScreen end
+    end
+  elseif screen == "load" then
+    if etype == "key" and isKey(ev, "up", 200) then loadSel = loadSel - 1
+    elseif etype == "key" and isKey(ev, "down", 208) then loadSel = loadSel + 1
+    elseif etype == "key" and isKey(ev, "enter", 28) then
+      if loadList[loadSel] and loadPreset(loadList[loadSel]) then
+        if lastMode and lastMode ~= "old" then setMode(lastMode) screen = "page" else screen = "modeSelect" end
+      else errorMsg = "Could not load preset" screen = "modeSelect" end
+    elseif etype == "key" and isKey(ev, "esc", 1) then screen = "modeSelect"
+    elseif etype == "char" and ev[2]:lower() == "b" then screen = "modeSelect"
+    elseif etype == "mouse_click" then
+      local row = ev[4] - 3
+      if row >= 1 and row <= #loadList then
+        loadSel = row
+        if loadPreset(loadList[row]) then
+          if lastMode and lastMode ~= "old" then setMode(lastMode) screen = "page" else screen = "modeSelect" end
+        else errorMsg = "Could not load preset" screen = "modeSelect" end
+      end
+    end
+  elseif screen == "save" then
+    if etype == "char" and ev[2]:match("[%w%._%-]") and #saveName < 24 then saveName = saveName .. ev[2]
+    elseif etype == "key" and isKey(ev, "backspace", 14) then saveName = saveName:sub(1, -2)
+    elseif etype == "key" and isKey(ev, "enter", 28) then
+      local name = trim(saveName)
+      if name == "" then errorMsg = "Enter a preset name" screen = "summary"
+      elseif name == "current-preset" then errorMsg = "That name is reserved" screen = "summary"
+      else
+        if name:sub(-4) ~= ".txt" then name = name .. ".txt" end
+        if writePreset(name) then errorMsg = "" screen = "summary" else errorMsg = "Could not write preset" screen = "summary" end
+      end
+      saveEditing = false
+    elseif etype == "key" and isKey(ev, "esc", 1) then saveEditing = false screen = "summary"
+    elseif etype == "mouse_click" then
+      local act = buttonAt(btns, ev[3], ev[4])
+      if act == "cancel" then saveEditing = false screen = "summary"
+      elseif act == "save" then
+        local name = trim(saveName)
+        if name == "" then errorMsg = "Enter a preset name" screen = "summary"
+        elseif name == "current-preset" then errorMsg = "That name is reserved" screen = "summary"
+        else
+          if name:sub(-4) ~= ".txt" then name = name .. ".txt" end
+          if writePreset(name) then errorMsg = "" screen = "summary" else errorMsg = "Could not write preset" screen = "summary" end
+        end
+        saveEditing = false
+      end
+    end
+  end
+end
+
+clearAll()
+setFG("white")

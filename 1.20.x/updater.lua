@@ -1,4 +1,4 @@
-version = 20261013.1840
+version = 20261101.0200
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	Master Turtle pack installer/updater.
@@ -280,7 +280,7 @@ function main()
     "move", "turn",
     "b.lua", "d.lua", "f.lua", "u.lua", "l.lua", "r.lua",
     "p.lua", "x.lua", "data.lua", "flint.lua",
-    "attack", "buckRef", "framer", "trump", "vacuum", "quarry",
+    "attack", "buckRef", "framer", "trump", "vacuum", "quarry", "quarry-ui",
     "chopchop.lua", "cluster.lua", "cobble.lua", "cranker.lua", "cropper.lua",
     "filler.lua", "go.lua", "lavaRefuel.lua", "platformer.lua",
     "cc-ai", "blockman", "updater.lua",

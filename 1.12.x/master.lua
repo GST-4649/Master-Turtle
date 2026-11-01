@@ -1,4 +1,4 @@
-local version = 20261013.1910
+local version = 20261101.0200
 -- Master Turtle launcher v1.0
 -- Unified GUI menu for every program in the Master Turtle pack.
 -- Built on the Inksaver lib/ui + scenes framework.
@@ -29,13 +29,8 @@ _G.HEIGHT = h
 _G.MasterTurtle = {
     version = version,
     programs = {
-        { prog = "quarry", name = "Quarry",
-          desc = "Massive quarry (civilwargeeky), crash-proof resume",
-          dims = {
-              { flag = "-length", label = "Length (X)" },
-              { flag = "-width", label = "Width (Z)" },
-              { flag = "-height", label = "Height (down)" },
-          } },
+        { prog = "quarry-ui", name = "Quarry",
+          desc = "Massive quarry (civilwargeeky), crash-proof resume, via quarry-ui preset builder" },
         { prog = "platformer", name = "Platformer",
           desc = "Builder: floor/walls/solid/hollow/roof",
           dims = {
