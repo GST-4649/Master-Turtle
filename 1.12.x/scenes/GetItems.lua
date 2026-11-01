@@ -1,4 +1,4 @@
-local version = 20261101.1345
+local version = 20261101.1600
 
 local Scene 	= require("lib.Scene")
 local Label 	= require("lib.ui.Label")
@@ -157,20 +157,23 @@ function S:setup()
 			table.insert(tempInventory, v[1])	
 		end
 		-- read quantities later v[2]
-		--[[if v[3] == nil then						-- v[3] = required true/false
-			if useTable then
-				v[3] = {false, false}
-			else
-				v[3] = false
+		-- normalise required / comment fields: some rows omit them (Boat Lift)
+		-- and some multi-item rows use a scalar instead of a table (Build Wall)
+		if useTable then
+			if v[3] == nil or type(v[3]) ~= "table" then
+				local req = v[3] or false
+				v[3] = {}
+				for i = 1, #v[1] do v[3][i] = req end
 			end
+			if v[4] == nil or type(v[4]) ~= "table" then
+				local com = v[4] or ""
+				v[4] = {}
+				for i = 1, #v[1] do v[4][i] = com end
+			end
+		else
+			if v[3] == nil then v[3] = false end
+			if v[4] == nil then v[4] = "" end
 		end
-		if v[4] == nil then							-- v[4] = comments
-			if useTable then
-				v[4] = {"", ""}
-			else
-				v[4] = ""
-			end
-		end]]
 --Log:saveToLog("S:setup() tempInventory after items added = "..textutils.serialise(tempInventory, {compact = true}))
 		-- get quantities
 		if useTable then										-- {"math.ceil(R.length / 2)", "math.ceil(R.length / 2)"}

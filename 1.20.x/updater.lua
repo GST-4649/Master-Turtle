@@ -1,4 +1,4 @@
-version = 20261101.0200
+version = 20261101.1445
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	Master Turtle pack installer/updater.
@@ -350,6 +350,14 @@ function main()
 	log(updated.." files updated")
 
 	print("See update.log for details (edit update.log to view)")
+	if updated > 0 then
+		io.write("Restart now to apply changes? [Y/n]: ")
+		local rans = (read() or ""):lower()
+		if rans == "" or rans == "y" or rans == "yes" then
+			print("Restarting to apply changes...")
+			os.reboot()
+		end
+	end
 end
 
 main()

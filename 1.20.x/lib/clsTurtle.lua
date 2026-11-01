@@ -1,4 +1,4 @@
-local version = 20251005.1800
+local version = 20261101.1500
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	save as T.lua, preferably in /lib folder
@@ -600,7 +600,7 @@ function T:doMoves(numBlocksRequested, direction)
 						if digOK then
 							sleep(g) -- allow sand / gravel to drop if digging forward / up
 						else -- unable to dig, or nothing to dig
-							if digError:lower():find("unbreakable") ~= nil then -- different messages between versions all contain 'unbreakable'
+							if (digError or ""):lower():find("unbreakable") ~= nil then -- different messages between versions all contain 'unbreakable'
 								errorMsg = digError
 								print(digError)
 								break
@@ -621,7 +621,7 @@ function T:doMoves(numBlocksRequested, direction)
 							if digOK then
 								sleep(g) -- allow sand / gravel to drop if digging forward / up
 							else -- unable to dig, or nothing to dig
-								if digError:lower():find("unbreakable") ~= nil then -- different messages between versions all contain 'unbreakable'
+								if (digError or ""):lower():find("unbreakable") ~= nil then -- different messages between versions all contain 'unbreakable'
 									errorMsg = digError
 									print(digError)
 									break
@@ -2019,16 +2019,21 @@ end
 
 function T:getEquipped()
 	-- returns tool equipped on chosen side "left" or "right"
-	local dataLeft = turtle.getEquippedLeft()
-	local dataRight = turtle.getEquippedRight()
-	local itemLeft = ""
-	local itemRight = ""
-	
-	if dataLeft ~= nil then
-		itemLeft = dataLeft.name
+	-- turtle.getEquippedLeft/Right are new in CC:Tweaked 1.116.0, so they
+	-- are nil on older versions. Fall back to the tracked equipped state.
+	local itemLeft = self.equippedLeft or ""
+	local itemRight = self.equippedRight or ""
+	if type(turtle.getEquippedLeft) == "function" then
+		local dataLeft = turtle.getEquippedLeft()
+		if dataLeft ~= nil then
+			itemLeft = dataLeft.name
+		end
 	end
-	if dataRight ~= nil then
-		itemRight = dataRight.name
+	if type(turtle.getEquippedRight) == "function" then
+		local dataRight = turtle.getEquippedRight()
+		if dataRight ~= nil then
+			itemRight = dataRight.name
+		end
 	end
 
 	return itemLeft, itemRight	-- "", "" if nothing equipped; "minecraft:diamond_pickaxe", "minecraft:crafting_table"

@@ -1,4 +1,4 @@
-local version = 20251005.1800
+local version = 20261101.1500
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -5227,7 +5227,7 @@ function createLadder()
 		print("Creating ladder going down "..R.height.." blocks")
 		local success = true
 		local numBlocks, errorMsg = 0, ""
-		T:down(1)
+		success, numBlocks, errorMsg, blockType = T:down(1, true)
 		R.currentLevel = R.currentLevel - 1
 		for i = 1, R.height do -- go down, place ladder as you go
 			lib.buildDam()
@@ -6892,6 +6892,7 @@ function createStaircase()
 		T:craft('slab', numSlabsNeeded)
 	end
 	print("Creating staircase "..R.height.." blocks")
+	local retValue = {}
 
 	local success, numBlocks, errorMsg, blockType = true, 0, "", ""
 	if R.goDown then -- go down towards bedrock
@@ -9430,15 +9431,19 @@ function manageFarm()
 
 	function lib.getEquipped()
 		local left, right = "",""
-		local data = turtle.getEquippedLeft()
-		if data ~= nil then
-			left = data.name
+		-- turtle.getEquippedLeft/Right are new in CC:Tweaked 1.116.0, nil on older versions
+		if type(turtle.getEquippedLeft) == "function" then
+			local data = turtle.getEquippedLeft()
+			if data ~= nil then
+				left = data.name
+			end
 		end
-		data = turtle.getEquippedRight()
-		if data ~= nil then
-			right = data.name
+		if type(turtle.getEquippedRight) == "function" then
+			local data = turtle.getEquippedRight()
+			if data ~= nil then
+				right = data.name
+			end
 		end
-		
 		return left, right
 	end
 	
