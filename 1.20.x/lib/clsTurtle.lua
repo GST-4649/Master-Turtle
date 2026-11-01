@@ -1,4 +1,4 @@
-local version = 20261101.1500
+local version = 20261101.1800
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	save as T.lua, preferably in /lib folder
@@ -599,6 +599,13 @@ function T:doMoves(numBlocksRequested, direction)
 						digOK, digError = Dig()
 						if digOK then
 							sleep(g) -- allow sand / gravel to drop if digging forward / up
+							if (blockType or ""):find("spawner") == nil and (blockType or ""):find("turtle") == nil then
+								moveOK, moveError = Move()
+								if moveOK then
+									numBlocksMoved = numBlocksMoved + 1
+									self:changeCoords(direction)
+								end
+							end
 						else -- unable to dig, or nothing to dig
 							if (digError or ""):lower():find("unbreakable") ~= nil then -- different messages between versions all contain 'unbreakable'
 								errorMsg = digError
@@ -752,6 +759,9 @@ function T:up(steps, getBlock)
 	local blocksMoved, errorMsg = self:doMoves(steps, "up")
 	if blocksMoved == steps then
 		success = true
+	end
+	if getBlock then
+		blockType = self:getBlockType("up")
 	end
 	return success, blocksMoved, errorMsg, blockType
 end
@@ -1762,7 +1772,7 @@ function T:findBedrockTop(height)
 		end
 		if bedrockFound then
 			self:up(1)
-			height = height -1 
+			height = height + 1 
 			self:place("stone", "down", true)
 			print("Moving up...")
 		end
@@ -1797,7 +1807,7 @@ function T:findBedrockTop(height)
 		if bedrockFound then
 			print("Moving up...")
 			self:go("U1C2", false, 0, true)
-			height = height -1
+			height = height + 1
 		else
 			print("Area clear of bedrock...")
 		end

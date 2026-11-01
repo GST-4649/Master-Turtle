@@ -1,4 +1,4 @@
-local version = 20261101.1700
+local version = 20261101.1800
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -6872,6 +6872,12 @@ function createStaircase()
 	else	
 		R.height = math.abs(R.startLevel - R.destinationLevel) --height of stairs
 	end
+	if R.height <= 0 then
+		return {"Staircase height is 0, check start and destination levels"}
+	end
+	if not R.goDown and not R.goUp then
+		return {"Staircase direction not set, Go UP or Go DOWN was not set"}
+	end
 	R.currentLevel = R.startLevel	-- eg 64 going down
 	local numSlabsNeeded = (R.height * 2) - numSlabs -- addSlabs places 2 slabs per level
 	if numSlabsNeeded > 126 then	-- 126 is max no of slabs from 1 stack of stone, so repeat
@@ -6895,18 +6901,20 @@ function createStaircase()
 	local retValue = {}
 
 	local success, numBlocks, errorMsg, blockType = true, 0, "", ""
+	local downMoves = 0
 	if R.goDown then -- go down towards bedrock
 		local atBedrock = false
 		for i = 1, R.height do
 			success, numBlocks, errorMsg, blockType = T:down(1, true) -- true = return blockType
 			if success then
+				downMoves = downMoves + 1
 				R.currentLevel = R.currentLevel - 1
 				if R.auto then
-					if blockType:find("stone_bricks") ~= nil then
+					if (blockType or ""):find("stone_bricks") ~= nil then
 						table.insert(retValue, "Stronghold discovered")
 						break -- stop descent at stronghold
 					end
-					if blockType:find("polished_tuff") ~= nil then
+					if (blockType or ""):find("polished_tuff") ~= nil then
 						table.insert(retValue, "Trial chamber discovered")
 						break -- stop descent at trial chamber
 					end
@@ -6917,9 +6925,18 @@ function createStaircase()
 			end
 		end
 		if atBedrock then -- hit bedrock so get to level 5 / -59
+			if downMoves == 0 and (blockType or ""):find("bedrock") == nil then
+				-- did not move at all, and the block below is not bedrock:
+				-- do not silently finish as completed. Old code treated any
+				-- failed first move as bedrock, then set start equal to
+				-- destination, so every later loop was a no-op and it
+				-- still returned "Staircase completed".
+				return {"Staircase did not move down, block below: "..tostring(blockType)..", error: "..tostring(errorMsg)}
+			end
 			R.currentLevel = T:findBedrockTop(R.currentLevel)
 			T:go("R1F1R1", false, 0, true)
 		end
+		Log:saveToLog("createStaircase() downMoves = "..downMoves..", currentLevel = "..R.currentLevel)
 		-- re-calculate start and destination levels
 		R.destinationLevel = R.startLevel
 		R.startLevel = R.currentLevel
