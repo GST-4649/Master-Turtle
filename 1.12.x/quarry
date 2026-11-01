@@ -1,4 +1,4 @@
-version = 20261101.0300
+version = 20261101.0400
 -- Lua 5.2 compat (CC:Tweaked 1.109+): restore the 5.1-isms this program uses when missing.
 if not loadstring then loadstring = load end
 if not unpack then unpack = table.unpack end
@@ -399,7 +399,7 @@ function parseParam(name, displayText, formatString, forcePrompt, trigger, varia
   if formatType == "boolean" then --All the format strings will be basically be put through a switch statement
     toRet = givenValue:sub(1,1):lower() ~= "n" and givenValue:sub(1,1):lower() ~= "f" --Accepts anything but false or no
   elseif formatType == "string" then
-    toRet = givenValue:match("^[%w%./]+") --Basically anything not a space or control character etc
+    toRet = givenValue:match("^[%w%./%-_]+") --Allow hyphen and underscore in filenames, e.g. current-preset.txt, Civil_Quarry_Restore
   elseif formatType == "number" or formatType == "float" then
     toRet = tonumber(givenValue) --Note this is a local, not the above so we don't change anything
     if not toRet then return end --We need a number... Otherwise compare errors
