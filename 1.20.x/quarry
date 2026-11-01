@@ -1,4 +1,4 @@
-version = 20261013.2030
+version = 20261101.0300
 -- Lua 5.2 compat (CC:Tweaked 1.109+): restore the 5.1-isms this program uses when missing.
 if not loadstring then loadstring = load end
 if not unpack then unpack = table.unpack end
@@ -30,7 +30,15 @@ else
     -- work exactly as before.
     local args = {...}
     civilTable._QUARRY_SANDBOXED = true
-    return os.run(civilTable, shell.getRunningProgram(), (table.unpack or unpack)(args))
+    -- Shell is nil when quarry is started by the auto-resume startup stub,
+    -- which uses os.run({}, ...) and bypasses the shell. Fall back to
+    -- "quarry", the same fallback doAutoResumeStuff already uses.
+    local progName = "quarry"
+    if shell and shell.getRunningProgram then
+      local ok, name = pcall(shell.getRunningProgram)
+      if ok and type(name) == "string" and name ~= "" then progName = name end
+    end
+    return os.run(civilTable, progName, (table.unpack or unpack)(args))
   end
 end
 originalDay = os.day() --Used in logging
