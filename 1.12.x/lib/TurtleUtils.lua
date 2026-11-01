@@ -1,4 +1,4 @@
-local version = 20251005.1800
+local version = 20261101.1700
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	save as lib/TurtleUtils.lua
@@ -543,13 +543,17 @@ function U.parseExpression(expression)
 					end
 				end
 			else	-- starts with an operator eg math.abs
-				--Log:saveToLog("\tstarts with "..elements[1].. ", sum = "..sum)
-				--if (elements[1]):find("math") ~= nil then
-					--if #elements > 2 then
-					
-					--end
-				--end
-				sum = lib.calculate(sum, elements[1])
+				if (elements[1] == "math.abs" or elements[1] == "math.floor" or elements[1] == "math.ceil")
+					and #elements >= 2 and tonumber(elements[2]) ~= nil then
+					-- math function applies to the next element, then keep
+					-- going with any trailing operators, eg math.abs(...) * 2
+					sum = lib.calculate(elements[2], elements[1])
+					for i = 3, #elements, 2 do
+						sum = lib.calculate(sum, elements[i], elements[i + 1])
+					end
+				else
+					sum = lib.calculate(sum, elements[1])
+				end
 			end
 		end
 		-- if starts with number, should be a sequence of calculations 

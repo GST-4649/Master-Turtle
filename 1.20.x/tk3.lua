@@ -1,4 +1,4 @@
-local version = 20261101.1500
+local version = 20261101.1700
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -6873,7 +6873,7 @@ function createStaircase()
 		R.height = math.abs(R.startLevel - R.destinationLevel) --height of stairs
 	end
 	R.currentLevel = R.startLevel	-- eg 64 going down
-	local numSlabsNeeded = R.height - numSlabs
+	local numSlabsNeeded = (R.height * 2) - numSlabs -- addSlabs places 2 slabs per level
 	if numSlabsNeeded > 126 then	-- 126 is max no of slabs from 1 stack of stone, so repeat
 		print('crafting '..numSlabsNeeded..' : '..numSlabs.. ' in stock')
 		if T:craft('slab', 126) then	-- max 126 so repeat
@@ -6882,7 +6882,7 @@ function createStaircase()
 				data = T:getStock("slab")
 			end
 			numSlabs = data.total
-			numSlabsNeeded = numSlabsNeeded - numSlabs
+			numSlabsNeeded = (R.height * 2) - numSlabs -- recompute, not subtract total
 		else
 			return {"Unable to craft slabs"}
 		end
