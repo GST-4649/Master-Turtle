@@ -1,4 +1,4 @@
-local version = 20261101.2200
+local version = 20261101.2300
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	save as T.lua, preferably in /lib folder
@@ -1087,7 +1087,7 @@ function T:craft(item, quantity)
 		lib.transfer(16, {1, 5, 6, 9, 10, 11}, sourceCount)
 	elseif item:find("slab") ~= nil then  --craft("slab", 126)
 		--3 cobblestone = 6 slabs
-		local sourceCount = lib.getSourceCount(16, 3, quantity) -- max 21 stone (6 - 126 slabs)
+		local sourceCount = math.ceil(quantity / 6) -- 3 stone -> 6 slabs, so 21 stone per slot for 126 slabs
 		lib.transfer(16, {1, 2, 3}, sourceCount)
 	end
 	turtle.select(16)
