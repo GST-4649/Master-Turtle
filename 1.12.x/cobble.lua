@@ -1,4 +1,5 @@
-version = 20261013.1700
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- INFINITE MINER v5.1
 -- Mines forever, listens for Q (or Ctrl+T) to stop, auto-dumps generable
 -- blocks into chests and everything else to your dump side.
@@ -16,6 +17,9 @@ local GENERABLE = {
     ["minecraft:obsidian"] = true,
 }
 local mined = 0
+local nonCobble = 0
+local insightsFlag = false
+local lifetimeMined = mtui.readLifetime("cobble")
 local stopFlag = false
 
 -------------------------
@@ -28,6 +32,9 @@ local function drawUI()
     print("=       Mining...      =")
     print("========================")
     print("Blocks mined: "..mined)
+    print("Lifetime mined: "..lifetimeMined)
+    if nonCobble > 0 then print("Non cobble items found: "..nonCobble..". Be careful!") else print("Non cobble items found: 0") end
+    print("Press V for insights.")
     write("press Q (or Ctrl+T) to stop. > ")
 end
 
@@ -92,6 +99,10 @@ end
 -------------------------
 local function miningLoop()
     while not stopFlag do
+        if insightsFlag then
+            insightsFlag = false
+            mtui.showInsights("cobble", mined, lifetimeMined, {"Non cobble items found: " .. nonCobble})
+        end
         drawUI()
 
         -- mine cobblestone
@@ -105,6 +116,10 @@ local function miningLoop()
 
         -- inventory threshold: 256 cobble, or nearly full of clutter
         if getCobbleCount() >= 256 or occupiedSlots() >= 14 then
+            for i = 1, 16 do
+                local d = turtle.getItemDetail(i)
+                if d and d.name and not GENERABLE[d.name] then nonCobble = nonCobble + d.count end
+            end
             print("\nHold it... gotta 'take a dump.'")
             sleep(1)
 
@@ -126,7 +141,9 @@ end
 local function stopListener()
     while true do
         local ev, key = os.pullEvent()
-        if ev == "terminate" or (ev == "key" and (key == keys.q or key == keys.enter)) then
+        if ev == "key" and key == keys.v then
+            insightsFlag = true
+        elseif ev == "terminate" or (ev == "key" and (key == keys.q or key == keys.enter)) then
             stopFlag = true
             print("\nOk fine, stopping. But because I wanted to.")
             return
@@ -164,3 +181,7 @@ cfg = scfg
 
 -- Run mining + key listener together
 parallel.waitForAny(miningLoop, stopListener)
+
+mtui.writeLifetime("cobble", lifetimeMined + mined)
+print("Mined this session: " .. mined .. "  Lifetime: " .. (lifetimeMined + mined) .. "  Non cobble: " .. nonCobble)
+print("Stopped.")

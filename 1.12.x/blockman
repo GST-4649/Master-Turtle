@@ -1,4 +1,5 @@
-version = 20261013.2000
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- blockman: Block Manager
 -- Lists the full effective allowed block list and lets the user add or
 -- remove entries. User additions persist via the CC settings API
@@ -49,7 +50,7 @@ local function showPage(entries, page)
     if page > pages then page = pages end
     term.clear()
     term.setCursorPos(1, 1)
-    print("Block Manager (page " .. page .. "/" .. pages .. ")")
+    mtui.header("Block Manager (page " .. page .. "/" .. pages .. ")")
     print("")
     if #entries == 0 then
         print("  (none)")
@@ -174,7 +175,7 @@ end
 
 term.clear()
 term.setCursorPos(1, 1)
-print("Block Manager")
+mtui.header("Block Manager")
 print("Version: " .. version)
 print("")
 
@@ -209,3 +210,4 @@ while true do
 end
 
 print("Block Manager closed.")
+print("Stopped.")

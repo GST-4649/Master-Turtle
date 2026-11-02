@@ -1,17 +1,14 @@
-local version = 20261101.0200
+local version = 20261102.0100
 -- Master Turtle launcher v1.0
--- Unified GUI menu for every program in the Master Turtle pack.
--- Built on the Inksaver lib/ui + scenes framework.
+-- Unified native term menu for every program in the Master Turtle pack.
+-- No SceneMgr, no lib/ui in the launcher path. Toolkit v3 still boots
+-- its own scene system when run as a program, unchanged.
 -- Select a program, answer any dimension prompts, and it runs;
 -- when it exits you return here. Run at boot via startup.lua.
 
 local unpack = table.unpack or unpack
 
--- Globals required by the lib/ui + scenes framework
-_G.U = require("lib.TurtleUtils")
-local Event = require("lib.Events")
-local SceneMgr = require("lib.SceneMgr")
-_G.events = Event(false)
+local Launcher = require("scenes.Launcher")
 
 local w, h = term.getSize()
 _G.WIDTH = w
@@ -21,6 +18,7 @@ _G.HEIGHT = h
 --   prog: file to shell.run (extensionless names work)
 --   name: short display name
 --   desc: one-line description
+--   cat: launcher category, Build, Gather, Action, Refuel, Tools, Pinned
 --   loop: true = intentional run-until-stopped program
 --   dims: dimension prompts; each is {flag, label} and becomes
 --         command-line args. A dim with triple=true takes three
@@ -29,9 +27,9 @@ _G.HEIGHT = h
 _G.MasterTurtle = {
     version = version,
     programs = {
-        { prog = "quarry-ui", name = "Quarry",
+        { prog = "quarry-ui", name = "Quarry", cat = "Pinned",
           desc = "Massive quarry (civilwargeeky), crash-proof resume, via quarry-ui preset builder" },
-        { prog = "platformer", name = "Platformer",
+        { prog = "platformer", name = "Platformer", cat = "Build",
           desc = "Builder: floor/walls/solid/hollow/roof",
           dims = {
             { flag = "-length", label = "Length (Z)" },
@@ -40,61 +38,63 @@ _G.MasterTurtle = {
             { flag = "-height", label = "Height: layers (blocks-up for roof)" },
             { flag = "-inverted", label = "Inverted (true/false)" },
           } },
-        { prog = "cropper", name = "Cropper",
+        { prog = "cropper", name = "Cropper", cat = "Gather",
           desc = "Auto crop farmer, replants as it goes",
           dims = {
             { flag = "-length", label = "Field length" },
             { flag = "-width", label = "Field width" },
           } },
-        { prog = "cluster", name = "Cluster Scanner",
+        { prog = "cluster", name = "Cluster Scanner", cat = "Gather",
           desc = "AE2 quartz cluster scanner", loop = true,
           dims = {
             { flag = "-length", label = "Scan length" },
             { flag = "-width", label = "Scan width" },
           } },
-        { prog = "filler", name = "Filler",
+        { prog = "filler", name = "Filler", cat = "Build",
           desc = "Fills an area with falling blocks",
           dims = {
             { flag = "-length", label = "Area length (Z)" },
             { flag = "-width", label = "Area width (X)" },
           } },
-        { prog = "vacuum", name = "Vacuum",
+        { prog = "vacuum", name = "Vacuum", cat = "Gather",
           desc = "Floor sweeper, sucks up loose items",
           dims = {
             { flag = "-length", label = "Area length" },
             { flag = "-width", label = "Area width" },
           } },
-        { prog = "trump", name = "TRMP",
+        { prog = "trump", name = "TRMP", cat = "Build",
           desc = "Layered wall builder (snake pattern)",
           dims = {
             { flag = "-length", label = "Wall length (X)" },
             { flag = "-height", label = "Wall height" },
             { flag = "-depth", label = "Wall thickness" },
           } },
-        { prog = "framer", name = "Framer",
+        { prog = "framer", name = "Framer", cat = "Build",
           desc = "Hollow room shell or edge frame",
           dims = { { flag = "-size", label = "Cube size (N)" } } },
-        { prog = "blockman", name = "Block Manager",
+        { prog = "torcher", name = "Torcher", cat = "Build",
+          desc = "Torch grid builder, one torch every 8 blocks" },
+        { prog = "blockman", name = "Block Manager", cat = "Tools",
           desc = "View/edit allowed building blocks" },
-        { prog = "chopchop", name = "ChopChop",
+        { prog = "chopchop", name = "ChopChop", cat = "Gather",
           desc = "Tree chopper", loop = true },
-        { prog = "cranker", name = "Cranker",
+        { prog = "cranker", name = "Cranker", cat = "Action",
           desc = "Create hand crank driver: simulates player right-click via turtle.place, one click every 8 ticks (32 RPM max)", loop = true },
-        { prog = "attack", name = "Attacker",
+        { prog = "attack", name = "Attacker", cat = "Action",
           desc = "Auto attacker, weapon select", loop = true },
-        { prog = "cobble", name = "Cobble Miner",
+        { prog = "cobble", name = "Cobble Miner", cat = "Gather",
           desc = "Infinite miner, dumps to chests", loop = true },
-        { prog = "flint", name = "Flint Maker",
+        { prog = "flint", name = "Flint Maker", cat = "Action",
           desc = "Turns gravel into flint" },
-        { prog = "buckRef", name = "Bucket Refuel",
+        { prog = "buckRef", name = "Bucket Refuel", cat = "Refuel",
           desc = "Refuels from any filled bucket" },
-        { prog = "lavaRefuel", name = "Lava Refuel",
+        { prog = "lavaRefuel", name = "Lava Refuel", cat = "Refuel",
           desc = "Refuels on a lava lake" },
-        { prog = "go", name = "Go Driver",
+        { prog = "go", name = "Go Driver", cat = "Tools",
           desc = "Interactive WASD turtle driver" },
-        { prog = "data", name = "Data",
+        { prog = "data", name = "Data", cat = "Tools",
           desc = "Block and item inspector" },
-        { prog = "movehelp", name = "Move cmds",
+        { prog = "movehelp", name = "Move cmds", cat = "Tools",
           desc = "b/d/f/u/l/r/p/x: shell movement commands",
           info = "Shell commands (type at the shell, not here):\n"
               .. "  b/d/f/u <n> [d]  move back/down/forward/up n blocks\n"
@@ -103,18 +103,18 @@ _G.MasterTurtle = {
               .. "  l/r <n>          turn left/right n times\n"
               .. "  p [u|d]          place block forward/up/down\n"
               .. "  x [u|d]          dig forward/up/down" },
-        { prog = "tk3", name = "Toolkit v3",
+        { prog = "tk3", name = "Toolkit v3", cat = "Pinned",
           desc = "Inksaver GUI toolkit (classic)",
           gate = "tk3.lua" },
-        { prog = "cc-ai", name = "AI Chat",
+        { prog = "cc-ai", name = "AI Chat", cat = "Pinned",
           desc = "Chat with an AI (needs the cc-ai server)",
           gate = "cc-ai", scene = "CCAI" },
-        { prog = "updater", name = "Updater",
+        { prog = "updater", name = "Updater", cat = "Pinned",
           desc = "Reinstall / update this pack from GitHub" },
     },
 }
 
--- Run a program outside the GUI event dispatch, then come back.
+-- Run a program outside the launcher, then come back.
 local function runProgram(launch)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.white)
@@ -132,9 +132,7 @@ local function runProgram(launch)
         print("Args: " .. table.concat(launch.args, " "))
     end
     print("")
-    local saveSm, saveEv = _G.sm, _G.events
     local ok, err = shell.run(launch.prog, unpack(launch.args or {}))
-    _G.sm, _G.events = saveSm, saveEv
     print("")
     if not ok then
         print("Exited with error: " .. tostring(err))
@@ -147,22 +145,12 @@ end
 
 _G.MasterTurtle.runProgram = runProgram
 
--- Boot
-_G.sm = SceneMgr("scenes", { "Launcher", "Dimensions", "CCAI" })
-_G.sm:switch("Launcher")
-
 while true do
-    local e = { os.pullEvent() }
-    _G.sm:update(e)
-    _G.sm:draw()
-    local launch = _G.MasterTurtle.launch
-    if launch then
-        _G.MasterTurtle.launch = nil
-        runProgram(launch)
-        _G.sm:switch("Launcher")
-    end
-    if _G.MasterTurtle.quit then
+    local action = Launcher.run(_G.MasterTurtle.programs)
+    if not action or action.action == "quit" then
         break
+    elseif action.action == "launch" and action.launch then
+        runProgram(action.launch)
     end
 end
 

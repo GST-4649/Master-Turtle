@@ -1,4 +1,5 @@
-version = 20261013.2000
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- CROPPER v0.4 BETA (Quarry Edition)
 -- Date: 2026-10-13
 -- Inspired by Civilwargeeky's Quarry & AE2 Cluster Scanner
@@ -80,7 +81,7 @@ local function drawUI()
     term.clear()
     term.setCursorPos(1,1)
 
-    colorPrint("=== CROPPER v"..VERSION.." ===", colors.blue)
+    mtui.header("CROPPER v" .. VERSION)
     print(string.rep("=",30))
 
     colorPrint("Cycle: "..state.cycleCount, colors.orange)
@@ -107,18 +108,7 @@ local function drawUI()
             percent = math.floor((state.totalScanned / total) * 100)
         end
 
-        io.write("Progress: [")
-        local bars = math.floor(percent / 5)
-        for i = 1, 20 do
-            if i <= bars then
-                if term.isColor() then term.setTextColor(colors.blue) end
-                io.write("=")
-                if term.isColor() then term.setTextColor(colors.white) end
-            else
-                io.write(" ")
-            end
-        end
-        print("] "..percent.."%")
+        print(mtui.progress(percent))
     end
 
     print(string.rep("=",30))
@@ -574,7 +564,7 @@ local function promptStart(resume)
     while count > 0 do
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== CROPPER v"..VERSION.." ===", colors.blue)
+        mtui.header("CROPPER v" .. VERSION)
         if resume then colorPrint("Previous session restored.", colors.green) end
 
         colorPrint(msg.." in "..count.." seconds...", colors.yellow)

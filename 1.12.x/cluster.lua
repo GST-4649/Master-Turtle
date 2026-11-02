@@ -1,4 +1,5 @@
-version = 20261013.1200
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- AE2 QUARTZ CLUSTER SCANNER v4.3 (Quarry Edition)
 -- Date: 2026-10-13
 -- Inspired by Civilwargeeky's Quarry
@@ -118,7 +119,7 @@ local function drawUI()
     term.clear()
     term.setCursorPos(1,1)
 
-    colorPrint("=== AE2 CLUSTER SCANNER v"..VERSION.." ===", colors.blue)
+    mtui.header("AE2 CLUSTER SCANNER v" .. VERSION)
     print(string.rep("=",30))
 
     colorPrint("Cycle: "..state.cycleCount, colors.orange)
@@ -145,18 +146,7 @@ local function drawUI()
             percent = math.floor((state.totalScanned / total) * 100)
         end
 
-        io.write("Progress: [")
-        local bars = math.floor(percent / 5)
-        for i = 1, 20 do
-            if i <= bars then
-                if term.isColor() then term.setTextColor(colors.blue) end
-                io.write("=")
-                if term.isColor() then term.setTextColor(colors.white) end
-            else
-                io.write(" ")
-            end
-        end
-        print("] "..percent.."%")
+        print(mtui.progress(percent))
     end
 
     print(string.rep("=",30))
@@ -418,7 +408,7 @@ local function promptStart(resume)
     while true do
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== AE2 CLUSTER SCANNER v"..VERSION.." ===", colors.blue)
+        mtui.header("AE2 CLUSTER SCANNER v" .. VERSION)
         if resume then colorPrint("Previous session restored.", colors.green) end
         
         colorPrint(msg.." in 5 seconds...", colors.yellow)

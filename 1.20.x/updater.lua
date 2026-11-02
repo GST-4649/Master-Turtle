@@ -1,4 +1,4 @@
-version = 20261101.1445
+version = 20261102.0100
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	Master Turtle pack installer/updater.
@@ -280,11 +280,11 @@ function main()
     "move", "turn",
     "b.lua", "d.lua", "f.lua", "u.lua", "l.lua", "r.lua",
     "p.lua", "x.lua", "data.lua", "flint.lua",
-    "attack", "buckRef", "framer", "trump", "vacuum", "quarry", "quarry-ui",
+    "attack", "buckRef", "framer", "trump", "vacuum", "torcher", "quarry", "quarry-ui",
     "chopchop.lua", "cluster.lua", "cobble.lua", "cranker.lua", "cropper.lua",
     "filler.lua", "go.lua", "lavaRefuel.lua", "platformer.lua",
     "cc-ai", "blockman", "updater.lua",
-    "lib/Resume.lua", "lib/allowedBlocks.lua",
+    "lib/Resume.lua", "lib/allowedBlocks.lua", "lib/mtui.lua",
     "lib/Class.lua", "lib/clsTurtle.lua", "lib/EntityMgr.lua",
     "lib/Events.lua", "lib/help.lua", "lib/Log.lua", "lib/LoopFuel.lua", "lib/LoopSetup.lua", "lib/menu.lua",
     "lib/Project.lua", "lib/Scene.lua", "lib/SceneMgr.lua",

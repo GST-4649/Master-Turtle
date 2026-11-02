@@ -1,4 +1,5 @@
-version = 20261013.0300
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -------------------------------------
 -- YES/NO DICTIONARIES
 -------------------------------------
@@ -20,6 +21,9 @@ local noList = {
 }
 
 local stopFlag = false
+local insightsFlag = false
+local chopped = 0
+local lifetimeChopped = mtui.readLifetime("chopchop")
 
 -------------------------------------
 -- UI HELPERS
@@ -124,13 +128,29 @@ local function chopLoop()
     -- So if it runs out of blocks, it auto-stops.
     
     while turtle.detect() and not stopFlag do
+        if insightsFlag then
+            insightsFlag = false
+            mtui.showInsights("chopchop", chopped, lifetimeChopped, {"Chopped for: " .. formatTime(os.clock() - startTime)})
+            header("CHOPCHOPCHOP")
+            info("CHOPPING AWAY")
+            term.setTextColor(colors.blue)
+            print("Press Q (or Ctrl+T) to stop.")
+            print("Chopped for: 00:00")
+            print("--------------------------------")
+            local _, ty = term.getCursorPos()
+            timerY = ty - 2
+        end
         turtle.dig()
+        chopped = chopped + 1
         sleep(0) -- mild delay to not choke/spam too hard, allows yield
 
         local elapsed = os.clock() - startTime
         term.setCursorPos(1, timerY)
         term.clearLine()
         term.write("Chopped for: " .. formatTime(elapsed))
+        term.setCursorPos(1, timerY + 2)
+        term.clearLine()
+        term.write("Chopped: " .. chopped .. "  Lifetime: " .. lifetimeChopped .. "  Press V for insights.")
     end
     
     if not stopFlag then
@@ -146,7 +166,9 @@ end
 local function stopListener()
     while true do
         local ev, key = os.pullEvent()
-        if ev == "terminate" or (ev == "key" and (key == keys.q or key == keys.enter)) then
+        if ev == "key" and key == keys.v then
+            insightsFlag = true
+        elseif ev == "terminate" or (ev == "key" and (key == keys.q or key == keys.enter)) then
             stopFlag = true
             term.setTextColor(colors.green)
             return
@@ -162,5 +184,8 @@ end
 parallel.waitForAny(chopLoop, stopListener)
 
 term.setTextColor(colors.green)
+mtui.writeLifetime("chopchop", lifetimeChopped + chopped)
 print("\nChop ended hehe")
+print("Chopped this session: " .. chopped .. "  Lifetime: " .. (lifetimeChopped + chopped))
+print("Stopped.")
 term.setTextColor(colors.white)

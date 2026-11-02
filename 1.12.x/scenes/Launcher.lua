@@ -1,169 +1,403 @@
-local version = 20261013.2000
+local version = 20261102.0100
 -- scenes/Launcher.lua
--- Master Turtle main menu: scrollable program list, Run/Quit.
--- Keyboard: up/down moves, Enter runs, Q quits. Mouse also works.
+-- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
+-- Categories AND search, Frequently used, Last used, pinned shortcuts,
+-- and bottom buttons (R)un, (I)nfo, (P)in, (Q)uit, (B)ack.
+-- This is a plain module. master.lua calls Launcher.run(programs).
+-- It returns {action="quit"} or {action="launch", launch={prog,args,info}}.
+-- No Esc anywhere. Q quits, B goes back to All with search cleared.
 
-local Scene = require("lib.Scene")
-local Label = require("lib.ui.Label")
-local Button = require("lib.ui.Button")
-local ListBox = require("lib.ui.ListBox")
+local mtui = require("lib.mtui")
+local Dimensions = require("scenes.Dimensions")
 
-local S = Scene:derive("launcher")
+local L = {}
+L.version = version
 
-local function displayName(p)
-    return p.name
+local CATEGORIES = { "All", "Build", "Gather", "Action", "Refuel", "Tools", "Pinned" }
+local USAGE_FILE = "mtui-usage.txt"
+
+local function loadUsage()
+    local u = { counts = {}, last = nil, pins = {}, pinOrder = {} }
+    if fs.exists(USAGE_FILE) then
+        local h = fs.open(USAGE_FILE, "r")
+        if h then
+            local line = h.readLine()
+            while line do
+                local k, v = line:match("^([^=]+)=(.+)$")
+                if k == "last" then
+                    u.last = v
+                elseif k == "pin" then
+                    if not u.pins[v] then
+                        u.pins[v] = true
+                        u.pinOrder[#u.pinOrder + 1] = v
+                    end
+                elseif k then
+                    u.counts[k] = tonumber(v) or 0
+                end
+                line = h.readLine()
+            end
+            h.close()
+        end
+    end
+    return u
 end
 
-function S:new(sceneMgr)
-    S.super.new(self, sceneMgr)
-    self.name = "Launcher"
+local function saveUsage(u)
+    local h = fs.open(USAGE_FILE, "w")
+    if not h then return end
+    if u.last then h.writeLine("last=" .. u.last) end
+    for _, name in ipairs(u.pinOrder) do
+        if u.pins[name] then h.writeLine("pin=" .. name) end
+    end
+    for name, count in pairs(u.counts) do
+        h.writeLine(name .. "=" .. tostring(count))
+    end
+    h.close()
+end
 
-    -- program list, respecting gates (tk3 on 1.20.x only, cc-ai when installed)
-    self.entries = {}
+local function sortedCounts(u)
     local names = {}
-    for _, p in ipairs(_G.MasterTurtle.programs) do
-        if not p.gate or fs.exists(p.gate) then
-            self.entries[#self.entries + 1] = p
-            names[#names + 1] = displayName(p)
+    for name in pairs(u.counts) do names[#names + 1] = name end
+    table.sort(names, function(a, b) return u.counts[a] > u.counts[b] end)
+    return names
+end
+
+function L.run(programs)
+    local entries = {}
+    for _, p in ipairs(programs) do
+        if not p.gate or fs.exists(p.gate) then entries[#entries + 1] = p end
+    end
+    local byName = {}
+    for _, p in ipairs(entries) do byName[p.prog] = p end
+
+    local usage = loadUsage()
+    local catIdx = 1
+    local search = ""
+    local focus = "list"
+    local sel = 1
+    local offset = 1
+    local btnRects = {}
+    local catRects = {}
+    local chipRects = {}
+
+    local function currentCat()
+        return CATEGORIES[catIdx]
+    end
+
+    local function filtered()
+        local out = {}
+        local q = search:lower()
+        for _, p in ipairs(entries) do
+            local catOk = currentCat() == "All" or (p.cat or "Tools") == currentCat()
+            local qOk = q == "" or p.name:lower():find(q, 1, true) or p.desc:lower():find(q, 1, true)
+            if catOk and qOk then out[#out + 1] = p end
         end
+        return out
     end
 
-    local W, H = _G.WIDTH, _G.HEIGHT
-    self.lblTitle = Label("lblTitle", 1, 1, W, 1,
-        "MASTER TURTLE", colors.yellow, colors.black, "centre", "centre")
-    self.lst = ListBox("lstProg", 2, 3, W - 3, H - 6,
-        names, colors.white, colors.black, colors.gray)
-
-    -- Three buttons centered as a group with even gaps.
-    local bw, gap = 10, 2
-    local x0 = math.floor((W - (3 * bw + 2 * gap)) / 2) + 1
-    self.btnRun = Button("btnRun", x0, H - 1, bw, 1,
-        "Run", colors.black, colors.lime, "centre", "centre", 0, "", self.name)
-    self.btnInfo = Button("btnInfo", x0 + bw + gap, H - 1, bw, 1,
-        "Info", colors.white, colors.blue, "centre", "centre", 0, "", self.name)
-    self.btnQuit = Button("btnQuit", x0 + 2 * (bw + gap), H - 1, bw, 1,
-        "Quit", colors.black, colors.red, "centre", "centre", 0, "q", self.name)
-
-    self.em:add(self.lblTitle, "lblTitle")
-    self.em:add(self.lst, "lstProg")
-    self.em:add(self.btnRun, "btnRun")
-    self.em:add(self.btnInfo, "btnInfo")
-    self.em:add(self.btnQuit, "btnQuit")
-
-    self.selIdx = 1
-    self.btnClick = function(b) self:onBtnClick(b) end
-    self.listClick = function(lb) self:onListClick(lb) end
-end
-
-function S:enter()
-    S.super.enter(self)
-    _G.events:hook("onBtnClick", self.btnClick)
-    _G.events:hook("onListClick", self.listClick)
-    self:setSelectedIndex(self.selIdx)
-end
-
-function S:exit()
-    S.super.exit(self)
-    _G.events:unhook("onBtnClick", self.btnClick)
-    _G.events:unhook("onListClick", self.listClick)
-end
-
-function S:setSelectedIndex(idx)
-    if idx < 1 then idx = 1 end
-    if idx > #self.entries then idx = #self.entries end
-    self.selIdx = idx
-    local p = self.entries[idx]
-    if p then
-        self.lst.selectedText = displayName(p)
-        self.lst:setHighlightRow(idx)
+    local function selectedEntry()
+        local list = filtered()
+        if #list == 0 then return nil end
+        if sel < 1 then sel = 1 end
+        if sel > #list then sel = #list end
+        return list[sel]
     end
-end
 
-function S:selectedEntry()
-    return self.entries[self.selIdx]
-end
-
-function S:onListClick(lb)
-    -- mouse selection: sync keyboard index to the clicked row
-    local t = self.lst.selectedText
-    for i, p in ipairs(self.entries) do
-        if displayName(p) == t then
-            self.selIdx = i
-            break
+    local function freqNames()
+        local out = {}
+        local seen = {}
+        local function add(name)
+            if name and byName[name] and not seen[name] then
+                seen[name] = true
+                out[#out + 1] = name
+            end
         end
+        -- Pinned shortcuts always first: Toolkit v3 and Updater, if present.
+        add("tk3")
+        add("updater")
+        for _, name in ipairs(usage.pinOrder) do add(name) end
+        for _, name in ipairs(sortedCounts(usage)) do add(name) end
+        return out
     end
-    self:setSelectedIndex(self.selIdx)
-end
 
-function S:onBtnClick(button)
-    if button.name == "btnQuit" then
-        _G.MasterTurtle.quit = true
-    elseif button.name == "btnRun" then
-        self:runSelected()
-    elseif button.name == "btnInfo" then
-        self:showInfo()
+    local function draw()
+        local w, h = term.getSize()
+        mtui.clear()
+        mtui.header("MASTER TURTLE")
+        -- Row 2: search. Tab or click to focus it.
+        term.setCursorPos(1, 2)
+        term.setTextColor(colors.white)
+        local searchLine = "Search: " .. search .. (focus == "search" and "_" or "")
+        term.write(mtui.truncate(searchLine, w))
+        -- Row 3: frequently used chips.
+        chipRects = {}
+        term.setCursorPos(1, 3)
+        term.setTextColor(colors.lightGray)
+        term.write("Often: ")
+        local x = 8
+        local freq = freqNames()
+        for i = 1, math.min(4, #freq) do
+            local p = byName[freq[i]]
+            local label = p and p.name or freq[i]
+            if x + #label <= w then
+                term.setCursorPos(x, 3)
+                mtui.setText(colors.white, colors.white)
+                term.write(label)
+                chipRects[#chipRects + 1] = { prog = freq[i], x1 = x, x2 = x + #label - 1, y = 3 }
+                x = x + #label + 2
+            end
+        end
+        -- Row 4: last used.
+        term.setCursorPos(1, 4)
+        term.setTextColor(colors.lightGray)
+        local lastLabel = "Last: " .. (usage.last and (byName[usage.last] and byName[usage.last].name or usage.last) or "-")
+        term.write(mtui.truncate(lastLabel, w))
+        if usage.last and byName[usage.last] then
+            chipRects[#chipRects + 1] = { prog = usage.last, x1 = 7, x2 = 6 + #lastLabel, y = 4 }
+        end
+        -- Row 5: categories.
+        catRects = {}
+        term.setCursorPos(1, 5)
+        x = 1
+        for i, cat in ipairs(CATEGORIES) do
+            local label = "[" .. cat .. "]"
+            if x + #label <= w then
+                term.setCursorPos(x, 5)
+                if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
+                term.write(label)
+                catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = 5 }
+                x = x + #label + 1
+            end
+        end
+        -- List rows 6 to h-2.
+        local list = filtered()
+        if sel < 1 then sel = 1 end
+        if sel > #list then sel = math.max(1, #list) end
+        local listTop = 6
+        local listBottom = h - 2
+        local listRows = listBottom - listTop + 1
+        if listRows < 1 then listRows = 1 end
+        if sel < offset then offset = sel end
+        if sel > offset + listRows - 1 then offset = sel - listRows + 1 end
+        for row = 1, listRows do
+            local idx = offset + row - 1
+            local p = list[idx]
+            if p then
+                local y = listTop + row - 1
+                term.setCursorPos(1, y)
+                if idx == sel then
+                    term.setBackgroundColor(colors.gray)
+                    term.setTextColor(colors.white)
+                else
+                    term.setBackgroundColor(colors.black)
+                    term.setTextColor(colors.white)
+                end
+                local mark = usage.pins[p.prog] and " [pinned]" or ""
+                local line = (idx == sel and "> " or "  ") .. p.name .. mark
+                term.write(mtui.truncate(line, w))
+                term.setBackgroundColor(colors.black)
+            end
+        end
+        if #list == 0 then
+            term.setCursorPos(2, listTop)
+            term.setTextColor(colors.lightGray)
+            term.write("No match. Clear the search to see all programs.")
+        end
+        -- Info row h-1, buttons row h.
+        local p = selectedEntry()
+        term.setCursorPos(1, h - 1)
+        term.setTextColor(colors.white)
+        if p then
+            local info = p.name .. ": " .. p.desc .. (p.loop and " [runs until stopped]" or "")
+            term.write(mtui.truncate(info, w))
+        end
+        local pinLabel = "(P)in"
+        if p and usage.pins[p.prog] then pinLabel = "(P)inned" end
+        btnRects = mtui.buttonRow({
+            { id = "run", text = "(R)un", fg = colors.black, bg = colors.lime },
+            { id = "info", text = "(I)nfo", fg = colors.white, bg = colors.blue },
+            { id = "pin", text = pinLabel, fg = colors.black, bg = colors.orange },
+            { id = "quit", text = "(Q)uit", fg = colors.black, bg = colors.red },
+            { id = "back", text = "(B)ack", fg = colors.black, bg = colors.gray },
+        }, h)
     end
-end
 
-function S:showInfo()
-    local p = self:selectedEntry()
-    if not p then return end
-    local W = _G.WIDTH
-    term.setBackgroundColor(colors.black)
-    term.clear()
-    term.setCursorPos(1, 1)
-    term.setTextColor(colors.yellow)
-    print(p.name)
-    print("")
-    term.setTextColor(colors.white)
-    local text = p.desc .. (p.loop and " [runs until stopped]" or "")
-    local line = ""
-    for word in text:gmatch("%S+") do
-        if #line + #word + 1 > W then
-            print(line)
-            line = word
+    local function doPin()
+        local p = selectedEntry()
+        if not p then return end
+        if usage.pins[p.prog] then
+            usage.pins[p.prog] = nil
+            for i, name in ipairs(usage.pinOrder) do
+                if name == p.prog then table.remove(usage.pinOrder, i) break end
+            end
         else
-            line = line == "" and word or (line .. " " .. word)
+            usage.pins[p.prog] = true
+            usage.pinOrder[#usage.pinOrder + 1] = p.prog
+        end
+        saveUsage(usage)
+    end
+
+    local function doInfo()
+        local p = selectedEntry()
+        if not p then return end
+        local text = p.desc .. (p.loop and " [runs until stopped]" or "")
+        if p.info then text = p.info end
+        mtui.showInfo(p.name, text)
+    end
+
+    local function doRun()
+        local p = selectedEntry()
+        if not p then return nil end
+        if p.info then
+            mtui.showInfo(p.name, p.info)
+            return nil
+        end
+        if p.scene then
+            -- CC-AI scene is SceneMgr based and is not loaded by the
+            -- native launcher. Function is preserved: show its info,
+            -- then launch the chat client directly on Enter.
+            mtui.clear()
+            mtui.header("AI CHAT (cc-ai)")
+            term.setCursorPos(2, 3)
+            term.setTextColor(colors.white)
+            term.write("Chat with an AI from this turtle.")
+            term.setCursorPos(2, 4)
+            term.setTextColor(colors.lightGray)
+            term.write("Needs the cc-ai server running.")
+            term.setCursorPos(2, 6)
+            term.write("Press Enter to launch chat, any other key to return.")
+            local ev, key = os.pullEvent("key")
+            if key ~= keys.enter then return nil end
+            usage.last = p.prog
+            usage.counts[p.prog] = (usage.counts[p.prog] or 0) + 1
+            saveUsage(usage)
+            return { action = "launch", launch = { prog = "cc-ai", args = {} } }
+        end
+        local launch = nil
+        if p.dims then
+            launch = Dimensions.prompt(p)
+            if not launch then return nil end
+        else
+            launch = { prog = p.prog, args = {} }
+        end
+        usage.last = p.prog
+        usage.counts[p.prog] = (usage.counts[p.prog] or 0) + 1
+        saveUsage(usage)
+        return { action = "launch", launch = launch }
+    end
+
+    while true do
+        draw()
+        local ev, p1, p2, p3 = os.pullEvent()
+        if ev == "key" then
+            local key = p1
+            if focus == "search" then
+                if key == keys.enter or key == keys.tab then
+                    focus = "list"
+                elseif key == keys.backspace then
+                    search = search:sub(1, -2)
+                    sel = 1
+                    offset = 1
+                end
+            else
+                if key == keys.up then
+                    sel = sel - 1
+                elseif key == keys.down then
+                    sel = sel + 1
+                elseif key == keys.left then
+                    catIdx = catIdx - 1
+                    if catIdx < 1 then catIdx = #CATEGORIES end
+                    sel = 1
+                    offset = 1
+                elseif key == keys.right then
+                    catIdx = catIdx + 1
+                    if catIdx > #CATEGORIES then catIdx = 1 end
+                    sel = 1
+                    offset = 1
+                elseif key == keys.enter then
+                    local act = doRun()
+                    if act then return act end
+                elseif key == keys.tab then
+                    focus = "search"
+                elseif key == keys.r then
+                    local act = doRun()
+                    if act then return act end
+                elseif key == keys.i then
+                    doInfo()
+                elseif key == keys.p then
+                    doPin()
+                elseif key == keys.q then
+                    return { action = "quit" }
+                elseif key == keys.b then
+                    search = ""
+                    catIdx = 1
+                    sel = 1
+                    offset = 1
+                end
+            end
+        elseif ev == "char" then
+            if focus == "search" then
+                search = search .. p1
+                sel = 1
+                offset = 1
+            end
+        elseif ev == "mouse_click" then
+            local mx, my = p2, p3
+            local btn = mtui.buttonAt(btnRects, mx, my)
+            if btn == "run" then
+                local act = doRun()
+                if act then return act end
+            elseif btn == "info" then
+                doInfo()
+            elseif btn == "pin" then
+                doPin()
+            elseif btn == "quit" then
+                return { action = "quit" }
+            elseif btn == "back" then
+                search = ""
+                catIdx = 1
+                sel = 1
+                offset = 1
+            else
+                local handled = false
+                for _, r in ipairs(catRects) do
+                    if my == r.y and mx >= r.x1 and mx <= r.x2 then
+                        catIdx = r.idx
+                        sel = 1
+                        offset = 1
+                        handled = true
+                        break
+                    end
+                end
+                if not handled then
+                    for _, r in ipairs(chipRects) do
+                        if my == r.y and mx >= r.x1 and mx <= r.x2 then
+                            local target = byName[r.prog]
+                            if target then
+                                search = ""
+                                for i, cat in ipairs(CATEGORIES) do
+                                    if cat == (target.cat or "Tools") then catIdx = i break end
+                                end
+                                local list = filtered()
+                                for i, item in ipairs(list) do
+                                    if item == target then sel = i break end
+                                end
+                            end
+                            handled = true
+                            break
+                        end
+                    end
+                end
+                if not handled and my == 2 then
+                    focus = "search"
+                elseif not handled and my >= 6 then
+                    local list = filtered()
+                    local idx = offset + (my - 6)
+                    if list[idx] then sel = idx end
+                end
+            end
         end
     end
-    if line ~= "" then print(line) end
-    print("")
-    term.setTextColor(colors.lightGray)
-    print("Press any key to return.")
-    os.pullEvent("key")
 end
 
-function S:runSelected()
-    local p = self:selectedEntry()
-    if not p then return end
-    if p.scene then
-        _G.sm:switch(p.scene)
-    elseif p.dims then
-        _G.sm:switch("Dimensions", p)
-    else
-        _G.MasterTurtle.launch = { prog = p.prog, args = {}, info = p.info }
-    end
-end
-
-function S:update(data)
-    self.super.update(self, data)
-    -- keyboard navigation for the list (turtles have no mouse)
-    if data and data[1] == "key" then
-        local key = data[2]
-        if key == keys.up then
-            self:setSelectedIndex(self.selIdx - 1)
-        elseif key == keys.down then
-            self:setSelectedIndex(self.selIdx + 1)
-        elseif key == keys.enter then
-            self:runSelected()
-        elseif key == keys.i then
-            self:showInfo()
-        end
-    end
-end
-
-function S:draw()
-    self.super.draw(self)
-end
-
-return S
+return L

@@ -1,4 +1,5 @@
-version = 20261013.2000
+version = 20261102.0200
+local mtui = require("lib.mtui")
 --[[
 	Will auto-download clsTurtle.lua
 	Used to move turtle in multiple directions
@@ -57,7 +58,7 @@ end
 function showHelp()
 	term.clear()
 	term.setCursorPos(1, 1)
-	print("GO DRIVER - Help")
+	mtui.header("GO DRIVER")
 	print("")
 	print("Move: f=forward b=back u=up d=down")
 	print("      l=turn left r=turn right")
@@ -261,3 +262,4 @@ function main()
 end
 
 main()
+print("Stopped.")

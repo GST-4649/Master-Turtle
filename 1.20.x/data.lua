@@ -1,4 +1,5 @@
-version = 20261013.0300
+version = 20261102.0200
+local mtui = require("lib.mtui")
 
 local usage = [[usage:
 data    block name forward or data 1
@@ -141,6 +142,7 @@ if args[1] ~= nil then
 	if args[1]:lower() == "h" then
 		term.clear()
 		term.setCursorPos(1,1)
+		mtui.header("Data")
 		print(usage)
 		print("Fuel Level: "..turtle.getFuelLevel())
 	elseif args[1]:lower() == "u" or args[1] == "0" then
@@ -159,3 +161,4 @@ if args[1] ~= nil then
 		getData(inspect)
 	end
 end
+print("Stopped.")

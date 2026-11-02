@@ -1,0 +1,183 @@
+version = 20261102.0100
+-- TORCH-GRID-BUILDER v2
+-- Places torches every 8 blocks in a grid using snake pattern
+-- Horizontal spacing: 8 blocks, Vertical spacing: 8 blocks so in a chunk,
+-- 1,1/ 1,8/ 1,16/
+-- 8,1/ 8,8/ 8,16/
+-- 16,1/ 16,8/ 16,16/
+-- Uses snake rows and safe movement
+-- Refills only torches, waits for ENTER
+-- Original Pastebin version 2025-11-28, imported for Master Turtle.
+-- Progress bar now uses lib/mtui, same 20 block bar as other programs.
+
+local mtui = require("lib.mtui")
+
+--------------------------------------
+-- COLORS
+--------------------------------------
+local function colorPrint(msg, color)
+    term.setTextColor(color)
+    print(msg)
+    term.setTextColor(colors.white)
+end
+
+--------------------------------------
+-- INPUT
+--------------------------------------
+local function readNum(msg)
+    colorPrint(msg, colors.orange)
+    local n = tonumber(read())
+    while not n or n <= 0 do
+        colorPrint("Enter valid number:", colors.red)
+        n = tonumber(read())
+    end
+    return math.floor(n)
+end
+
+--------------------------------------
+-- TORCH HANDLING
+--------------------------------------
+local function countTorches()
+    local total = 0
+    for i = 1, 16 do
+        local d = turtle.getItemDetail(i)
+        if d and (d.name == "minecraft:torch" or d.name == "minecraft:soul_torch") then
+            total = total + d.count
+        end
+    end
+    return total
+end
+
+local function selectTorch()
+    for i = 1, 16 do
+        local d = turtle.getItemDetail(i)
+        if d and d.count > 0 and (d.name == "minecraft:torch" or d.name == "minecraft:soul_torch") then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function placeTorch()
+    while not selectTorch() do
+        colorPrint("OUT OF TORCHES! Add more then press ENTER.", colors.red)
+        read()
+    end
+    turtle.placeDown()
+end
+
+--------------------------------------
+-- SAFE MOVE
+--------------------------------------
+local function forwardSafe()
+    while not turtle.forward() do
+        turtle.dig()
+        turtle.attack()
+        sleep(0.1)
+    end
+end
+
+--------------------------------------
+-- UI
+--------------------------------------
+local function drawUI(placed, total)
+    term.clear()
+    term.setCursorPos(1, 1)
+    mtui.header("TORCH-GRID-BUILDER v2")
+    print(string.rep("=", 31))
+    colorPrint("Torches placed: " .. placed .. " / " .. total, colors.orange)
+    local pct = 0
+    if total > 0 then pct = math.floor((placed / total) * 100) end
+    print(mtui.progress(pct))
+    print("Fuel: " .. turtle.getFuelLevel())
+    print(string.rep("=", 31))
+end
+
+--------------------------------------
+-- MAIN
+--------------------------------------
+term.clear()
+term.setCursorPos(1, 1)
+mtui.header("TORCH-GRID-BUILDER v2")
+
+local length = readNum("Enter area length (X):")
+local width = readNum("Enter area width (Z):")
+
+local function getGridPositions(limit)
+    local pos = { 1 }
+    local nextP = 8
+    while nextP <= limit do
+        table.insert(pos, nextP)
+        nextP = nextP + 8
+    end
+    return pos
+end
+
+local rowCoords = getGridPositions(width)
+local colCoords = getGridPositions(length)
+local totalTorches = #rowCoords * #colCoords
+
+colorPrint("Pattern example;\n-- 1,1/ 1,8/ 1,16/ \n-- 8,1/ 8,8/ 8,16/ \n-- 16,1/ 16,8/ 16,16/ (Every 8 blocks)", colors.green)
+colorPrint("You will place " .. totalTorches .. " torches.", colors.orange)
+print("")
+colorPrint("Press ENTER when torches are loaded.", colors.green)
+read()
+
+local minStart = math.min(64, totalTorches)
+while countTorches() < minStart do
+    colorPrint("Need at least " .. minStart .. " torches to begin. Add more and press ENTER.", colors.red)
+    read()
+end
+
+for i = 5, 1, -1 do
+    term.clear()
+    term.setCursorPos(1, 1)
+    colorPrint("Starting in " .. i .. " ...", colors.green)
+    sleep(1)
+end
+
+--------------------------------------
+-- BUILD LOOP
+--------------------------------------
+local placed = 0
+local currentX = 1
+local currentZ = 1
+local goingForward = true
+
+for rIndex, rPos in ipairs(rowCoords) do
+    if rPos > currentZ then
+        local dist = rPos - currentZ
+        if goingForward then
+            turtle.turnRight()
+            for i = 1, dist do forwardSafe() end
+            turtle.turnRight()
+        else
+            turtle.turnLeft()
+            for i = 1, dist do forwardSafe() end
+            turtle.turnLeft()
+        end
+        currentZ = rPos
+        goingForward = not goingForward
+    end
+
+    local targets = {}
+    for _, c in ipairs(colCoords) do table.insert(targets, c) end
+    if not goingForward then
+        table.sort(targets, function(a, b) return a > b end)
+    else
+        table.sort(targets)
+    end
+
+    for _, cPos in ipairs(targets) do
+        local dist = math.abs(cPos - currentX)
+        for i = 1, dist do forwardSafe() end
+        currentX = cPos
+        placeTorch()
+        placed = placed + 1
+        drawUI(placed, totalTorches)
+    end
+end
+
+drawUI(totalTorches, totalTorches)
+colorPrint("Torch grid complete!", colors.green)

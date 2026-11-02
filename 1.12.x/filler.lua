@@ -1,4 +1,5 @@
-version = 20261013.1200
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- FILLER v1.0
 -- Date: 2025-12-17
 -- Adapted from Platformer v5.0
@@ -166,7 +167,7 @@ end
 local function drawUI()
     term.clear()
     term.setCursorPos(1,1)
-    colorPrint("=== FILLER v"..VERSION.." ===", colors.blue)
+    mtui.header("FILLER v" .. VERSION)
     print(string.rep("=",30))
     
     local total = state.params.length * state.params.width
@@ -187,18 +188,7 @@ local function drawUI()
     
     colorPrint("Press Q to Terminate", colors.red)
     
-    io.write("Progress: [")
-    local bars = math.floor(percent / 5)
-    for i = 1, 20 do
-        if i <= bars then
-            if term.isColor() then term.setTextColor(colors.blue) end
-            io.write("=")
-            if term.isColor() then term.setTextColor(colors.white) end
-        else
-            io.write(" ")
-        end
-    end
-    print("] "..percent.."%")
+    print(mtui.progress(percent))
     print(string.rep("=",30))
     
     if state.isReturning then
@@ -289,7 +279,7 @@ local function performRefillSequence()
         
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== WAITING FOR BLOCKS ===", colors.red)
+        mtui.header("WAITING FOR BLOCKS")
         print("Turtle returned to 0,0 for refill.")
         print("Required: FALLING blocks (Sand, Gravel, etc.)")
         print("Add blocks to inventory or place chest.")
@@ -431,7 +421,7 @@ local function promptStart(resume)
     while true do
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== FILLER v"..VERSION.." ===", colors.blue)
+        mtui.header("FILLER v" .. VERSION)
         colorPrint("Mode: Falling Block Column Fill", colors.yellow)
         colorPrint("Start Position: 0, 0", colors.yellow)
         print("Required: Falling Blocks (Sand/Gravel)")

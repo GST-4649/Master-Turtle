@@ -1,4 +1,5 @@
-version = 20261013.1700
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- Attacker v2.2 (CC:Tweaked)
 -- Features:
 --  * Continuous attacks forward
@@ -13,6 +14,8 @@ version = 20261013.1700
 
 local stopFlag = false
 local attacksPerformed, hitsRegistered = 0, 0
+local insightsFlag = false
+local lifetimeAttacks = mtui.readLifetime("attack")
 
 local LoopSetup = require("lib.LoopSetup")
 local cfg = LoopSetup.defaults()
@@ -123,7 +126,7 @@ end
 local function drawUI(delay)
     term.clear()
     term.setCursorPos(1,1)
-    colorPrint("=== Attacker v2.2 ===", colors.blue)
+    mtui.header("Attacker v2.2")
     print(string.rep("=",30))
     colorWrite("Mode: ", colors.green); colorPrint("continuous", colors.orange)
     colorWrite("Direction: ", colors.green); colorPrint("front", colors.orange)
@@ -131,6 +134,8 @@ local function drawUI(delay)
     print("---------------------------")
     colorWrite("Attacks performed: ", colors.green); colorPrint(attacksPerformed, colors.orange)
     colorWrite("Hits registered  : ", colors.green); colorPrint(hitsRegistered, colors.orange)
+    colorWrite("Lifetime attacks   : ", colors.green); colorPrint(lifetimeAttacks, colors.orange)
+    colorWrite("Press V for insights.", colors.lightGray); print("")
     local percent = attacksPerformed > 0 and math.min(100, (hitsRegistered/attacksPerformed)*100) or 0
     io.write("Hit ratio: [")
     local bars = math.floor(percent/5)
@@ -160,6 +165,11 @@ end
 --------------------------------------
 local function continuousWorker(delay)
     while not stopFlag do
+        if insightsFlag then
+            insightsFlag = false
+            mtui.showInsights("attack", attacksPerformed, lifetimeAttacks, {"Hits registered: " .. hitsRegistered})
+            drawUI(delay)
+        end
         if occupiedSlots() >= 6 then
             colorPrint("Inventory busy, dumping items...", colors.orange)
             local dumped = dumpToChest()
@@ -182,7 +192,9 @@ end
 local function stopListener()
     while true do
         local ev,key = os.pullEvent()
-        if ev=="terminate" or (ev=="key" and (key==keys.q or key==keys.enter)) then
+        if ev=="key" and key==keys.v then
+            insightsFlag=true
+        elseif ev=="terminate" or (ev=="key" and (key==keys.q or key==keys.enter)) then
             stopFlag=true
             colorPrint("\nUser requested stop.", colors.red)
             return
@@ -216,4 +228,7 @@ term.clear(); term.setCursorPos(1,1)
 colorPrint("Attacker stopped. Stats:", colors.blue)
 colorPrint("Attacks performed: "..attacksPerformed, colors.orange)
 colorPrint("Hits registered  : "..hitsRegistered, colors.orange)
+mtui.writeLifetime("attack", lifetimeAttacks + attacksPerformed)
+colorPrint("Session attacks: " .. attacksPerformed .. "  Lifetime: " .. (lifetimeAttacks + attacksPerformed), colors.orange)
+colorPrint("Stopped.", colors.green)
 colorPrint("Goodbye.", colors.green)

@@ -1,4 +1,5 @@
-version = 20261013.2000
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- PLATFORMER v6.0
 -- Date: 2026-10-12
 -- Inspired by Cluster Scanner v4.1 Logic
@@ -226,7 +227,7 @@ end
 local function drawUI()
     term.clear()
     term.setCursorPos(1,1)
-    colorPrint("=== PLATFORMER v"..VERSION.." ===", colors.blue)
+    mtui.header("PLATFORMER v" .. VERSION)
     print(string.rep("=",30))
     
     local total = totalCells()
@@ -256,18 +257,7 @@ local function drawUI()
     
     colorPrint("Press Q (Instant) to Terminate", colors.red)
     
-    io.write("Progress: [")
-    local bars = math.floor(percent / 5)
-    for i = 1, 20 do
-        if i <= bars then
-            if term.isColor() then term.setTextColor(colors.blue) end
-            io.write("=")
-            if term.isColor() then term.setTextColor(colors.white) end
-        else
-            io.write(" ")
-        end
-    end
-    print("] "..percent.."%")
+    print(mtui.progress(percent))
     print(string.rep("=",30))
     
     if state.isReturning then
@@ -377,7 +367,7 @@ local function performRefillSequence()
         
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== WAITING FOR BLOCKS ===", colors.red)
+        mtui.header("WAITING FOR BLOCKS")
         print("Turtle returned to 0,0 for refill.")
         print("Please add ALLOWED blocks to inventory")
         print("or place chest next to turtle.")
@@ -682,7 +672,7 @@ local function promptStart(resume)
     if not resume then
         term.clear()
         term.setCursorPos(1,1)
-        colorPrint("=== PLATFORMER v"..VERSION.." ===", colors.blue)
+        mtui.header("PLATFORMER v" .. VERSION)
         colorPrint("Start Position: 0, 0 (Bottom-Left)", colors.yellow)
         colorPrint("Facing: FORWARD (+Z)", colors.yellow)
         colorPrint("Mode: "..state.params.mode..

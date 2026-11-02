@@ -1,4 +1,5 @@
-version = 20261013.0300
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -- Universal Liquid Refuel
 -- Version 2.2 
 -- UI upgraded
@@ -6,6 +7,8 @@ version = 20261013.0300
 
 local fuelLimit = turtle.getFuelLimit()
 local targetFuel = fuelLimit
+local refuels = 0
+local lifetimeRefuels = mtui.readLifetime("buckRef")
 
 -- Find an item slot by a predicate function
 local function findItemBy(fn)
@@ -31,13 +34,9 @@ local function drawUI(currentFuel, targetFuel)
     print("=   Universal Liquid Refuel  =")
     print("==============================")
     print("Fuel Level: "..currentFuel.." / "..targetFuel)
+    print("Refuels this session: "..refuels.."  Lifetime: "..lifetimeRefuels.."  (No live V button: this program has no key listener loop.)")
     local percent = math.floor((currentFuel/targetFuel)*100)
-    io.write("Progress: [")
-    local bars = math.floor(percent/5)
-    for i=1,20 do
-        if i <= bars then io.write("=") else io.write(" ") end
-    end
-    print("] "..percent.."%")
+    print(mtui.progress(percent))
     print("==============================")
 end
 
@@ -57,6 +56,7 @@ while turtle.getFuelLevel() < targetFuel do
         turtle.select(fullBucket)
         if turtle.refuel(0) then  -- check if burnable
             turtle.refuel()
+            refuels = refuels + 1
             print("Refueled using bucket in slot "..fullBucket.."! Fuel: "..turtle.getFuelLevel().." / "..targetFuel)
             didRefuel = true
         else
@@ -89,5 +89,8 @@ while turtle.getFuelLevel() < targetFuel do
 end
 
 print("==============================")
+mtui.writeLifetime("buckRef", lifetimeRefuels + refuels)
 print("Refuel complete! Fuel is full at "..turtle.getFuelLevel().."/"..targetFuel)
+print("Refuels this session: "..refuels.."  Lifetime: "..(lifetimeRefuels + refuels))
+print("Stopped.")
 print("==============================")

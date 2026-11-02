@@ -1,4 +1,5 @@
-version = 20261013.1200
+version = 20261102.0200
+local mtui = require("lib.mtui")
 local allowedLib = require("lib.allowedBlocks")
 local allowedBlocks = allowedLib.allowedBlocks
 local LoopSetup = require("lib.LoopSetup")
@@ -319,7 +320,7 @@ end
 local function drawUI(placed, total)
     term.clear()
     term.setCursorPos(1,1)
-    colorPrint("=== TRMP Wall Builder v0.4 ===", colors.blue)
+    mtui.header("TRMP Wall Builder v0.4")
     print(string.rep("=",30))
 
     colorWrite("Blocks placed: ", colors.green)
@@ -327,16 +328,7 @@ local function drawUI(placed, total)
 
     -- Progress bar
     local percent = math.floor((placed/total)*100)
-    io.write("Progress: [")
-    local bars = math.floor(percent/5)
-    for i=1,20 do
-        if i <= bars then
-            colorWrite("=", colors.blue)
-        else
-            io.write(" ")
-        end
-    end
-    colorPrint("] "..percent.."%", colors.orange)
+    colorPrint(mtui.progress(percent), colors.orange)
 
     -- Fuel
     local fuel = turtle.getFuelLevel()
@@ -352,7 +344,7 @@ end
 --------------------------------------
 term.clear()
 term.setCursorPos(1,1)
-colorPrint("=== TRMP Wall Builder v0.4 ===", colors.blue)
+mtui.header("TRMP Wall Builder v0.4")
 
 local tArgs = { ... }
 local cliL, cliH, cliD = 0, 0, 0

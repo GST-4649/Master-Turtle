@@ -1,4 +1,5 @@
-version = 20261013.1200
+version = 20261102.0200
+local mtui = require("lib.mtui")
 local allowedLib = require("lib.allowedBlocks")
 local allowedBlocks = allowedLib.allowedBlocks
 -- FRAME BUILDER v0.1
@@ -141,19 +142,14 @@ end
 --------------------------------------
 local function drawUI(placed,total)
     term.clear(); term.setCursorPos(1,1)
-    colorPrint("=== FRAME BUILDER v0.1 ===", colors.blue)
+    mtui.header("FRAME BUILDER v0.1")
     print(string.rep("=",30))
 
     colorWrite("Blocks placed: ", colors.green)
     colorPrint(placed.." / "..total, colors.orange)
 
     local percent = math.floor((placed/total)*100)
-    io.write("Progress: [")
-    local bars = math.floor(percent/5)
-    for i=1,20 do
-        if i <= bars then colorWrite("=", colors.blue) else io.write(" ") end
-    end
-    colorPrint("] "..percent.."%", colors.orange)
+    colorPrint(mtui.progress(percent), colors.orange)
 
     colorWrite("Fuel: ", colors.green)
     colorPrint(turtle.getFuelLevel().." / "..turtle.getFuelLimit(), colors.orange)
@@ -234,7 +230,7 @@ end
 -- MAIN
 --------------------------------------
 term.clear(); term.setCursorPos(1,1)
-colorPrint("=== FRAME BUILDER v0.1 ===", colors.blue)
+mtui.header("FRAME BUILDER v0.1")
 
 -- Mode selection
 colorPrint("Choose mode:", colors.orange)

@@ -1,4 +1,5 @@
-version = 20261013.1700
+version = 20261102.0200
+local mtui = require("lib.mtui")
 -------------------------------------
 -- YES/NO DICTIONARIES
 -------------------------------------
@@ -15,6 +16,9 @@ local noList = {
 }
 
 local stopFlag = false
+local insightsFlag = false
+local cranked = 0
+local lifetimeCranked = mtui.readLifetime("cranker")
 
 -------------------------------------
 -- UI HELPERS
@@ -105,13 +109,29 @@ local function crankLoop()
     timerY = timerY - 2
 
     while not stopFlag do
+        if insightsFlag then
+            insightsFlag = false
+            mtui.showInsights("cranker", cranked, lifetimeCranked, {"Cranked it " .. cranked .. " times!"})
+            header("CCCCRANKINGG")
+            info("IM CRANKING IT")
+            term.setTextColor(colors.blue)
+            print("Press Q (or Ctrl+T) to stop.")
+            print("Cranked it for: 00:00")
+            print("--------------------------------")
+            local _, ty = term.getCursorPos()
+            timerY = ty - 2
+        end
         turtle.place()
+        cranked = cranked + 1
         sleep(0.4)
 
         local elapsed = os.clock() - startTime
         term.setCursorPos(1, timerY)
         term.clearLine()
         term.write("Cranked it for: " .. formatTime(elapsed))
+        term.setCursorPos(1, timerY + 2)
+        term.clearLine()
+        term.write("Cranked it " .. cranked .. " times!  Lifetime: " .. lifetimeCranked .. "  Press V for insights.")
     end
 end
 
@@ -127,6 +147,8 @@ local function stopListener()
             stopFlag = true
             term.setTextColor(colors.green)
             return
+        elseif ev == "key" and key == keys.v then
+            insightsFlag = true
         end
     end
 end
@@ -137,7 +159,10 @@ end
 parallel.waitForAny(crankLoop, stopListener)
 
 term.setTextColor(colors.green)
+mtui.writeLifetime("cranker", lifetimeCranked + cranked)
 print("\nAlright fine. Stopping the crank...")
+print("Cranked it " .. cranked .. " times!  Lifetime: " .. (lifetimeCranked + cranked))
+print("Stopped.")
 sleep(3)
 print("\nBUT BECAUSE I WAS DONE XD")
 term.setTextColor(colors.white)

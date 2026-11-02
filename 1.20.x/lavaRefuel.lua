@@ -1,4 +1,5 @@
-version = 20261013.0300
+version = 20261102.0200
+local mtui = require("lib.mtui")
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	Will auto-download clsTurtle.lua
@@ -6,6 +7,8 @@ version = 20261013.0300
 	Use: 'lavaRefuel' in turtle terminal
 ]]
 local Turtle
+local strips = 0
+local lifetimeStrips = mtui.readLifetime("lavaRefuel")
 -- Turtle class (T), menu class (menu) and other libraries made Global
 
 function clear()
@@ -145,6 +148,7 @@ function main()
 	if side ~= 'C' then -- not a single strip
 		while lavaPresent do
 			width = width + 1
+			strips = strips + 1
 			if side == 'R' then -- do strip on the right
 				T:go("R1F1L1")
 				x = x + 1
@@ -163,6 +167,9 @@ function main()
 		end
 		goHome(x, y)
 	end
+	mtui.writeLifetime("lavaRefuel", lifetimeStrips + strips)
+	print("Lava strips this session: " .. strips .. "  Lifetime: " .. (lifetimeStrips + strips))
+	print("Stopped.")
 end
 
 main()
