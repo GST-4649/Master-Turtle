@@ -1,4 +1,4 @@
-local version = 20261101.2100
+local version = 20261101.2200
 --[[
 	**********Toolkit v3**********
 	Last edited: see version YYYYMMDD.HHMM
@@ -7011,7 +7011,7 @@ function createStaircase()
 		R.currentLevel = R.currentLevel - remaining
 	end
 
-	T:go("F1L1 F1L1 x2F2 D1x2 L1")
+	T:go("F1L1 F1L1 x2F2 x2 L1")
 	while R.currentLevel < R.destinationLevel do
 		lib.addSlabs()
 		R.currentLevel = R.currentLevel + 1

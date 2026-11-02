@@ -1,4 +1,4 @@
-local version = 20261101.1800
+local version = 20261101.2200
 --[[
 	Last edited: see version YYYYMMDD.HHMM
 	save as T.lua, preferably in /lib folder
@@ -3149,7 +3149,7 @@ function T:go(path, useTorch, torchInterval, leaveExisting, preferredBlock)
 				self:dig("forward")
 			elseif modifier == 2 then
 				while turtle.detectDown() do
-					turtle.digDown()
+					if not turtle.digDown() then break end
 				end
 			end
 		elseif move == "V" then --QuickMine
