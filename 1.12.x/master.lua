@@ -1,4 +1,4 @@
-local version = 20261102.0100
+local version = 20261102.0200
 -- Master Turtle launcher v1.0
 -- Unified native term menu for every program in the Master Turtle pack.
 -- No SceneMgr, no lib/ui in the launcher path. Toolkit v3 still boots
@@ -34,9 +34,9 @@ _G.MasterTurtle = {
           dims = {
             { flag = "-length", label = "Length (Z)" },
             { flag = "-width", label = "Width (X)" },
-            { flag = "-mode", label = "Mode (floor/walls/solid/hollow/roof)" },
-            { flag = "-height", label = "Height: layers (blocks-up for roof)" },
-            { flag = "-inverted", label = "Inverted (true/false)" },
+            { flag = "-mode", label = "Mode" },
+            { flag = "-height", label = "Height" },
+            { flag = "-inverted", label = "Inverted" },
           } },
         { prog = "cropper", name = "Cropper", cat = "Gather",
           desc = "Auto crop farmer, replants as it goes",
