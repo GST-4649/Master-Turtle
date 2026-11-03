@@ -1,4 +1,4 @@
-local version = 20261102.0900
+local version = 20261102.1000
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Main screen: title, three view buttons, categories, program list,
@@ -191,6 +191,25 @@ function L.run(programs)
         search = ""
         sel = 1
         offset = 1
+    end
+
+    -- Leave search view, but keep the program that was selected
+    -- in the search results selected in the main list, if it is
+    -- still there. Used by arrow keys and list clicks, so after
+    -- leaving search, the next typed letter is a shortcut again,
+    -- not more search text.
+    local function leaveSearch()
+        local prog = selectedEntry()
+        view = "main"
+        search = ""
+        sel = 1
+        offset = 1
+        if prog then
+            local list = filtered()
+            for i, p in ipairs(list) do
+                if p.prog == prog.prog then sel = i break end
+            end
+        end
     end
 
     local function draw()
@@ -390,34 +409,41 @@ function L.run(programs)
         if ev == "key" then
             local key = p1
             if view == "search" then
+                -- In search view, letter keys must type, not act.
+                -- A key press in CC:Tweaked fires a key event first,
+                -- then a char event. The old code treated q, r, i,
+                -- p, f, l, and b as shortcuts in search view, so
+                -- typing "quarry" quit on q and ran on r before
+                -- the char event could append them. Only non
+                -- typing keys are handled here; letters fall
+                -- through to the char handler below and append.
                 if key == keys.tab then
                     exitView()
-                elseif key == keys.f then
-                    setView("frequent")
-                elseif key == keys.l then
-                    setView("last")
                 elseif key == keys.backspace then
                     search = search:sub(1, -2)
                     sel = 1
                     offset = 1
                 elseif key == keys.up then
+                    leaveSearch()
                     sel = sel - 1
                 elseif key == keys.down then
+                    leaveSearch()
                     sel = sel + 1
+                elseif key == keys.left then
+                    leaveSearch()
+                    catIdx = catIdx - 1
+                    if catIdx < 1 then catIdx = #CATEGORIES end
+                    sel = 1
+                    offset = 1
+                elseif key == keys.right then
+                    leaveSearch()
+                    catIdx = catIdx + 1
+                    if catIdx > #CATEGORIES then catIdx = 1 end
+                    sel = 1
+                    offset = 1
                 elseif key == keys.enter then
                     local act = doRun()
                     if act then return act end
-                elseif key == keys.r then
-                    local act = doRun()
-                    if act then return act end
-                elseif key == keys.i then
-                    doInfo()
-                elseif key == keys.p then
-                    doPin()
-                elseif key == keys.q then
-                    return { action = "quit" }
-                elseif key == keys.b then
-                    exitView()
                 end
             else
                 if key == keys.up then
@@ -513,7 +539,33 @@ function L.run(programs)
                     if not handled and my >= drawListTop and my <= drawListBottom then
                         local list = filtered()
                         local idx = offset + (my - drawListTop)
-                        if list[idx] then sel = idx end
+                        if list[idx] then
+                            if view == "search" then
+                                -- Clicking a search result selects
+                                -- that program, then leaves search,
+                                -- so the next typed letter is a
+                                -- shortcut again, not search text.
+                                local prog = list[idx]
+                                leaveSearch()
+                                catIdx = 1
+                                offset = 1
+                                local mainList = filtered()
+                                for i, p in ipairs(mainList) do
+                                    if p.prog == prog.prog then sel = i break end
+                                end
+                            else
+                                sel = idx
+                            end
+                        elseif view == "search" then
+                            -- Clicking an empty list row in search
+                            -- also leaves search.
+                            exitView()
+                        end
+                    elseif not handled and view == "search" then
+                        -- Clicking anywhere else outside the search
+                        -- bar, view buttons, and bottom buttons
+                        -- leaves search.
+                        exitView()
                     end
                 end
             end
