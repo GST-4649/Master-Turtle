@@ -1,4 +1,4 @@
-local version = 20261102.0600
+local version = 20261102.0700
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Main screen: title, three view buttons, categories, program list,
@@ -25,7 +25,7 @@ local CATEGORIES = { "All", "Build", "Gather", "Action", "Refuel", "Tools", "Pin
 local USAGE_FILE = "mtui-usage.txt"
 
 local function loadUsage()
-    local u = { counts = {}, last = nil, pins = {}, pinOrder = {}, history = {} }
+    local u = { counts = {}, last = nil, pins = {}, pinOrder = {}, unpins = {}, history = {} }
     if fs.exists(USAGE_FILE) then
         local h = fs.open(USAGE_FILE, "r")
         if h then
@@ -39,6 +39,8 @@ local function loadUsage()
                         u.pins[v] = true
                         u.pinOrder[#u.pinOrder + 1] = v
                     end
+                elseif k == "unpin" then
+                    u.unpins[v] = true
                 elseif k == "hist" then
                     u.history[#u.history + 1] = v
                 elseif k then
@@ -63,6 +65,9 @@ local function saveUsage(u)
     if u.last then h.writeLine("last=" .. u.last) end
     for _, name in ipairs(u.pinOrder) do
         if u.pins[name] then h.writeLine("pin=" .. name) end
+    end
+    for name in pairs(u.unpins) do
+        h.writeLine("unpin=" .. name)
     end
     for name, count in pairs(u.counts) do
         h.writeLine(name .. "=" .. tostring(count))
@@ -95,6 +100,17 @@ function L.run(programs)
 
     local function currentCat()
         return CATEGORIES[catIdx]
+    end
+
+    -- A program is effectively pinned if the user pinned it, or if
+    -- it is a default pinned program (cat Pinned in master.lua:
+    -- Quarry, Toolkit v3, AI Chat, Updater) and the user has not
+    -- unpinned it. Default pinned programs are not forced: pressing
+    -- P on one unpins it, pressing P again re-pins it.
+    local function isPinned(p)
+        if usage.pins[p.prog] then return true end
+        if usage.unpins[p.prog] then return false end
+        return (p.cat or "") == "Pinned"
     end
 
     local function recordUsage(prog)
@@ -134,7 +150,13 @@ function L.run(programs)
         for _, p in ipairs(entries) do
             local catOk = true
             if view == "main" then
-                catOk = currentCat() == "All" or (p.cat or "Tools") == currentCat()
+                if currentCat() == "All" then
+                    catOk = true
+                elseif currentCat() == "Pinned" then
+                    catOk = isPinned(p)
+                else
+                    catOk = (p.cat or "Tools") == currentCat()
+                end
             end
             local qOk = true
             if view == "search" then
@@ -243,7 +265,7 @@ function L.run(programs)
                     term.setBackgroundColor(colors.black)
                     term.setTextColor(colors.white)
                 end
-                local mark = usage.pins[p.prog] and " [pinned]" or ""
+                local mark = isPinned(p) and " [pinned]" or ""
                 local line = (idx == sel and "> " or "  ") .. p.name .. mark
                 if view == "frequent" then
                     line = line .. " x" .. tostring(usage.counts[p.prog] or 0)
@@ -266,7 +288,7 @@ function L.run(programs)
         -- Buttons row h.
         local p = selectedEntry()
         local pinLabel = "(P)in"
-        if p and usage.pins[p.prog] then
+        if p and isPinned(p) then
             -- "(P)inned" plus the other four buttons totals 41 with
             -- no gap, which crops Back on a 39 wide turtle. Use a
             -- star on a narrow screen; the list still shows [pinned].
@@ -287,14 +309,28 @@ function L.run(programs)
     local function doPin()
         local p = selectedEntry()
         if not p then return end
-        if usage.pins[p.prog] then
-            usage.pins[p.prog] = nil
-            for i, name in ipairs(usage.pinOrder) do
-                if name == p.prog then table.remove(usage.pinOrder, i) break end
+        if isPinned(p) then
+            -- Unpin it fully in one press, even if an old usage file
+            -- has both a user pin and a default pin for this program.
+            if usage.pins[p.prog] then
+                usage.pins[p.prog] = nil
+                for i, name in ipairs(usage.pinOrder) do
+                    if name == p.prog then table.remove(usage.pinOrder, i) break end
+                end
+            end
+            if (p.cat or "") == "Pinned" then
+                -- Default pinned, now unpin it. It stays in All.
+                usage.unpins[p.prog] = true
             end
         else
-            usage.pins[p.prog] = true
-            usage.pinOrder[#usage.pinOrder + 1] = p.prog
+            -- Re-pin it: removing an unpin is enough for a default
+            -- program, other programs get a user pin.
+            if usage.unpins[p.prog] then
+                usage.unpins[p.prog] = nil
+            elseif (p.cat or "") ~= "Pinned" then
+                usage.pins[p.prog] = true
+                usage.pinOrder[#usage.pinOrder + 1] = p.prog
+            end
         end
         saveUsage(usage)
     end
