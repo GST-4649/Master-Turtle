@@ -1,4 +1,4 @@
-version = 20261102.0400
+version = 20261102.0500
 -- lib/mtui.lua
 -- Shared native term UI for the Master Turtle launcher and Daniel's
 -- own programs, in quarry-ui style. No SceneMgr, no lib/ui.
@@ -154,6 +154,21 @@ end
 -- This is the mtui version of a button: lib/ui Button needs a
 -- SceneMgr scene and is usually 3 rows tall, which would waste
 -- two rows per tab row here, so it is not used for the launcher.
+-- Darken the gray used for unselected tabs and for the selected
+-- list row, so both are a subtle dark gray instead of the stock
+-- gray. Guarded: normal turtles ignore palette changes.
+function M.setDarkGray()
+    if isColor() then
+        pcall(term.setPaletteColor, colors.gray, 0x333333)
+    end
+end
+
+function M.restoreGray()
+    if isColor() then
+        pcall(term.setPaletteColor, colors.gray, 0x4C4C4C)
+    end
+end
+
 function M.tabButton(x, y, label, active)
     local width = #label + 2
     term.setCursorPos(x, y)
@@ -163,6 +178,35 @@ function M.tabButton(x, y, label, active)
             term.setTextColor(colors.black)
         else
             term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.white)
+        end
+    else
+        if active then
+            term.setBackgroundColor(colors.white)
+            term.setTextColor(colors.black)
+        else
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+        end
+    end
+    term.write(" " .. label .. " ")
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    return width
+end
+
+-- View buttons: blue family, always blue, active brighter.
+-- Active: light blue background, black text.
+-- Inactive: blue background, white text.
+function M.viewButton(x, y, label, active)
+    local width = #label + 2
+    term.setCursorPos(x, y)
+    if isColor() then
+        if active then
+            term.setBackgroundColor(colors.lightBlue)
+            term.setTextColor(colors.black)
+        else
+            term.setBackgroundColor(colors.blue)
             term.setTextColor(colors.white)
         end
     else

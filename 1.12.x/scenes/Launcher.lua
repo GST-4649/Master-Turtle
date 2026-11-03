@@ -1,4 +1,4 @@
-local version = 20261102.0800
+local version = 20261102.0900
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Main screen: title, three view buttons, categories, program list,
@@ -195,10 +195,12 @@ function L.run(programs)
 
     local function draw()
         local w, h = term.getSize()
+        mtui.setDarkGray()
         mtui.clear()
         mtui.header("MASTER TURTLE")
-        -- Row 2: view buttons, real button shapes with a solid
-        -- background, no square brackets. Active view is yellow.
+        -- Row 2: view buttons, real button shapes, blue family,
+        -- no square brackets. Active view is brighter light blue,
+        -- inactive views are blue.
         viewRects = {}
         local viewButtons = {
             { view = "search", label = "(Tab)Search" },
@@ -209,7 +211,7 @@ function L.run(programs)
         for _, b in ipairs(viewButtons) do
             local btnWidth = #b.label + 2
             if x + btnWidth - 1 <= w then
-                mtui.tabButton(x, 2, b.label, view == b.view)
+                mtui.viewButton(x, 2, b.label, view == b.view)
                 viewRects[#viewRects + 1] = { view = b.view, x1 = x, x2 = x + btnWidth - 1, y = 2 }
                 x = x + btnWidth + 1
             end
@@ -258,6 +260,9 @@ function L.run(programs)
                 local y = listTop + row - 1
                 term.setCursorPos(1, y)
                 if idx == sel then
+                    -- Selected program: slight highlight only.
+                    -- Gray here is palette darkened by draw()
+                    -- to 0x333333, so it is subtle, not bright.
                     term.setBackgroundColor(colors.gray)
                     term.setTextColor(colors.white)
                 else
