@@ -1,11 +1,19 @@
-local version = 20261102.0500
+local version = 20261102.0600
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
--- Categories AND search, Frequently used, Last used, pinned shortcuts,
--- and bottom buttons (R)un, (I)nfo, (P)in, (Q)uit, (B)ack.
--- This is a plain module. master.lua calls Launcher.run(programs).
--- It returns {action="quit"} or {action="launch", launch={prog,args,info}}.
--- No Esc anywhere. Q quits, B goes back to All with search cleared.
+-- Main screen: title, three view buttons, categories, program list,
+-- bottom buttons (R)un, (I)nfo, (P)in, (Q)uit, (B)ack.
+-- View buttons, row 2: (Tab)Search, (F)requent, (L)ast.
+-- Pressing or tapping a view button opens that view. Pressing or
+-- tapping the same button again leaves it and returns to main.
+-- Search view: type to filter across all programs, regardless of
+-- category. Tab leaves search and clears the search text.
+-- Frequent view: programs sorted by launch count, most used first,
+-- with the count shown, regardless of category. Use arrows only.
+-- Last view: programs in most recent launch order, regardless of
+-- category. Use arrows only. Launch history is kept in
+-- mtui-usage.txt as hist= lines, most recent first, up to 10.
+-- No Esc anywhere. Q quits, B goes back to main.
 
 local mtui = require("lib.mtui")
 local Dimensions = require("scenes.Dimensions")
@@ -17,7 +25,7 @@ local CATEGORIES = { "All", "Build", "Gather", "Action", "Refuel", "Tools", "Pin
 local USAGE_FILE = "mtui-usage.txt"
 
 local function loadUsage()
-    local u = { counts = {}, last = nil, pins = {}, pinOrder = {} }
+    local u = { counts = {}, last = nil, pins = {}, pinOrder = {}, history = {} }
     if fs.exists(USAGE_FILE) then
         local h = fs.open(USAGE_FILE, "r")
         if h then
@@ -31,6 +39,8 @@ local function loadUsage()
                         u.pins[v] = true
                         u.pinOrder[#u.pinOrder + 1] = v
                     end
+                elseif k == "hist" then
+                    u.history[#u.history + 1] = v
                 elseif k then
                     u.counts[k] = tonumber(v) or 0
                 end
@@ -38,6 +48,11 @@ local function loadUsage()
             end
             h.close()
         end
+    end
+    -- Old usage files have only last=, no history. Seed history
+    -- with that one program so Last is not empty after updating.
+    if #u.history == 0 and u.last then
+        u.history[1] = u.last
     end
     return u
 end
@@ -52,14 +67,10 @@ local function saveUsage(u)
     for name, count in pairs(u.counts) do
         h.writeLine(name .. "=" .. tostring(count))
     end
+    for _, name in ipairs(u.history) do
+        h.writeLine("hist=" .. name)
+    end
     h.close()
-end
-
-local function sortedCounts(u)
-    local names = {}
-    for name in pairs(u.counts) do names[#names + 1] = name end
-    table.sort(names, function(a, b) return u.counts[a] > u.counts[b] end)
-    return names
 end
 
 function L.run(programs)
@@ -73,25 +84,62 @@ function L.run(programs)
     local usage = loadUsage()
     local catIdx = 1
     local search = ""
-    local focus = "list"
+    local view = "main"
     local sel = 1
     local offset = 1
     local btnRects = {}
     local catRects = {}
-    local chipRects = {}
-    local listTop = 6
-    local listBottom = 12
+    local viewRects = {}
+    local drawListTop = 3
+    local drawListBottom = 12
 
     local function currentCat()
         return CATEGORIES[catIdx]
     end
 
+    local function recordUsage(prog)
+        usage.last = prog
+        usage.counts[prog] = (usage.counts[prog] or 0) + 1
+        for i, name in ipairs(usage.history) do
+            if name == prog then table.remove(usage.history, i) break end
+        end
+        table.insert(usage.history, 1, prog)
+        while #usage.history > 10 do table.remove(usage.history) end
+        saveUsage(usage)
+    end
+
     local function filtered()
         local out = {}
+        if view == "frequent" then
+            local names = {}
+            for name, count in pairs(usage.counts) do
+                if count > 0 and byName[name] then names[#names + 1] = name end
+            end
+            table.sort(names, function(a, b)
+                if usage.counts[a] ~= usage.counts[b] then
+                    return usage.counts[a] > usage.counts[b]
+                end
+                return a < b
+            end)
+            for _, name in ipairs(names) do out[#out + 1] = byName[name] end
+            return out
+        end
+        if view == "last" then
+            for _, name in ipairs(usage.history) do
+                if byName[name] then out[#out + 1] = byName[name] end
+            end
+            return out
+        end
         local q = search:lower()
         for _, p in ipairs(entries) do
-            local catOk = currentCat() == "All" or (p.cat or "Tools") == currentCat()
-            local qOk = q == "" or p.name:lower():find(q, 1, true) or p.desc:lower():find(q, 1, true)
+            local catOk = true
+            if view == "main" then
+                catOk = currentCat() == "All" or (p.cat or "Tools") == currentCat()
+            end
+            local qOk = true
+            if view == "search" then
+                qOk = q == "" or p.name:lower():find(q, 1, true) or p.desc:lower():find(q, 1, true)
+            end
             if catOk and qOk then out[#out + 1] = p end
         end
         return out
@@ -105,88 +153,79 @@ function L.run(programs)
         return list[sel]
     end
 
-    local function freqNames()
-        local out = {}
-        local seen = {}
-        local function add(name)
-            if name and byName[name] and not seen[name] then
-                seen[name] = true
-                out[#out + 1] = name
-            end
+    local function setView(newView)
+        if view == newView then
+            view = "main"
+        else
+            view = newView
         end
-        -- Pinned shortcuts always first: Toolkit v3 and Updater, if present.
-        add("tk3")
-        add("updater")
-        for _, name in ipairs(usage.pinOrder) do add(name) end
-        for _, name in ipairs(sortedCounts(usage)) do add(name) end
-        return out
+        if view ~= "search" then search = "" end
+        sel = 1
+        offset = 1
+    end
+
+    local function exitView()
+        view = "main"
+        search = ""
+        sel = 1
+        offset = 1
     end
 
     local function draw()
         local w, h = term.getSize()
         mtui.clear()
         mtui.header("MASTER TURTLE")
-        -- Row 2: search. Tab or click to focus it, Tab or click
-        -- again to leave it. The hint is on the row itself, short:
-        -- (Tab)Search: , because before this fix there was no way
-        -- to know Tab did that.
-        term.setCursorPos(1, 2)
-        term.setTextColor(colors.white)
-        local searchLine = "(Tab)Search: " .. search .. (focus == "search" and "_" or "")
-        term.write(mtui.truncate(searchLine, w))
-        -- Row 3: frequently used chips.
-        chipRects = {}
-        term.setCursorPos(1, 3)
-        term.setTextColor(colors.lightGray)
-        term.write("Often: ")
-        local x = 8
-        local freq = freqNames()
-        for i = 1, math.min(4, #freq) do
-            local p = byName[freq[i]]
-            local label = p and p.name or freq[i]
-            if x + #label <= w then
-                term.setCursorPos(x, 3)
-                mtui.setText(colors.white, colors.white)
-                term.write(label)
-                chipRects[#chipRects + 1] = { prog = freq[i], x1 = x, x2 = x + #label - 1, y = 3 }
-                x = x + #label + 2
+        -- Row 2: view buttons. Active view is yellow.
+        viewRects = {}
+        local viewButtons = {
+            { view = "search", label = "[(Tab)Search]" },
+            { view = "frequent", label = "[(F)requent]" },
+            { view = "last", label = "[(L)ast]" },
+        }
+        local x = 1
+        for _, b in ipairs(viewButtons) do
+            if x + #b.label - 1 <= w then
+                term.setCursorPos(x, 2)
+                if view == b.view then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
+                term.write(b.label)
+                viewRects[#viewRects + 1] = { view = b.view, x1 = x, x2 = x + #b.label - 1, y = 2 }
+                x = x + #b.label + 1
             end
         end
-        -- Row 4: last used.
-        term.setCursorPos(1, 4)
-        term.setTextColor(colors.lightGray)
-        local lastLabel = "Last: " .. (usage.last and (byName[usage.last] and byName[usage.last].name or usage.last) or "-")
-        term.write(mtui.truncate(lastLabel, w))
-        if usage.last and byName[usage.last] then
-            chipRects[#chipRects + 1] = { prog = usage.last, x1 = 7, x2 = 6 + #lastLabel, y = 4 }
+        -- Search bar row, only in search view.
+        local listTop = 3
+        if view == "search" then
+            term.setCursorPos(1, 3)
+            term.setTextColor(colors.white)
+            term.write(mtui.truncate("(Tab)Search: " .. search .. "_", w))
+            listTop = 4
         end
-        -- Categories, wrapped to fit the screen width. A turtle is
-        -- 39 wide, so all seven tabs do not fit on one row. They wrap
-        -- to a second row instead of being dropped, and the list
-        -- starts below the last category row.
+        -- Categories, only in main view, wrapped to fit the screen.
+        -- A turtle is 39 wide, so all seven tabs do not fit on one row.
         catRects = {}
-        local catY = 5
-        x = 1
-        for i, cat in ipairs(CATEGORIES) do
-            local label = "[" .. cat .. "]"
-            if x > 1 and x + #label - 1 > w then
-                catY = catY + 1
-                x = 1
+        if view == "main" then
+            local catY = 3
+            x = 1
+            for i, cat in ipairs(CATEGORIES) do
+                local label = "[" .. cat .. "]"
+                if x > 1 and x + #label - 1 > w then
+                    catY = catY + 1
+                    x = 1
+                end
+                term.setCursorPos(x, catY)
+                if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
+                term.write(label)
+                catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = catY }
+                x = x + #label + 1
             end
-            term.setCursorPos(x, catY)
-            if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
-            term.write(label)
-            catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = catY }
-            x = x + #label + 1
+            listTop = catY + 1
         end
-        -- List rows, from below the categories to h-1. There is no
-        -- info row above the buttons: that is what the Info button
-        -- is for, so the list gets that row instead.
+        -- List rows, from listTop to h-1. No info row above the
+        -- buttons: that is what the Info button is for.
         local list = filtered()
         if sel < 1 then sel = 1 end
         if sel > #list then sel = math.max(1, #list) end
-        listTop = catY + 1
-        listBottom = h - 1
+        local listBottom = h - 1
         local listRows = listBottom - listTop + 1
         if listRows < 1 then listRows = 1 end
         if sel < offset then offset = sel end
@@ -206,6 +245,9 @@ function L.run(programs)
                 end
                 local mark = usage.pins[p.prog] and " [pinned]" or ""
                 local line = (idx == sel and "> " or "  ") .. p.name .. mark
+                if view == "frequent" then
+                    line = line .. " x" .. tostring(usage.counts[p.prog] or 0)
+                end
                 term.write(mtui.truncate(line, w))
                 term.setBackgroundColor(colors.black)
             end
@@ -213,9 +255,15 @@ function L.run(programs)
         if #list == 0 then
             term.setCursorPos(2, listTop)
             term.setTextColor(colors.lightGray)
-            term.write("No match. Clear the search to see all programs.")
+            if view == "frequent" then
+                term.write("No frequent programs yet. Run one first.")
+            elseif view == "last" then
+                term.write("No recent programs yet. Run one first.")
+            else
+                term.write("No match. Clear the search to see all programs.")
+            end
         end
-        -- Buttons row h. No info row above it.
+        -- Buttons row h.
         local p = selectedEntry()
         local pinLabel = "(P)in"
         if p and usage.pins[p.prog] then
@@ -231,6 +279,9 @@ function L.run(programs)
             { id = "quit", text = "(Q)uit", fg = colors.black, bg = colors.red },
             { id = "back", text = "(B)ack", fg = colors.black, bg = colors.gray },
         }, h)
+        -- Remember list bounds for mouse clicks.
+        drawListTop = listTop
+        drawListBottom = listBottom
     end
 
     local function doPin()
@@ -279,9 +330,7 @@ function L.run(programs)
             term.write("Press Enter to launch chat, any other key to return.")
             local ev, key = os.pullEvent("key")
             if key ~= keys.enter then return nil end
-            usage.last = p.prog
-            usage.counts[p.prog] = (usage.counts[p.prog] or 0) + 1
-            saveUsage(usage)
+            recordUsage(p.prog)
             return { action = "launch", launch = { prog = "cc-ai", args = {} } }
         end
         local launch = nil
@@ -291,9 +340,7 @@ function L.run(programs)
         else
             launch = { prog = p.prog, args = {} }
         end
-        usage.last = p.prog
-        usage.counts[p.prog] = (usage.counts[p.prog] or 0) + 1
-        saveUsage(usage)
+        recordUsage(p.prog)
         return { action = "launch", launch = launch }
     end
 
@@ -302,52 +349,24 @@ function L.run(programs)
         local ev, p1, p2, p3 = os.pullEvent()
         if ev == "key" then
             local key = p1
-            if focus == "search" then
-                if key == keys.enter or key == keys.tab then
-                    focus = "list"
+            if view == "search" then
+                if key == keys.tab then
+                    exitView()
+                elseif key == keys.f then
+                    setView("frequent")
+                elseif key == keys.l then
+                    setView("last")
                 elseif key == keys.backspace then
                     search = search:sub(1, -2)
                     sel = 1
                     offset = 1
                 elseif key == keys.up then
-                    focus = "list"
-                    sel = sel - 1
-                elseif key == keys.down then
-                    focus = "list"
-                    sel = sel + 1
-                elseif key == keys.left then
-                    focus = "list"
-                    catIdx = catIdx - 1
-                    if catIdx < 1 then catIdx = #CATEGORIES end
-                    sel = 1
-                    offset = 1
-                elseif key == keys.right then
-                    focus = "list"
-                    catIdx = catIdx + 1
-                    if catIdx > #CATEGORIES then catIdx = 1 end
-                    sel = 1
-                    offset = 1
-                end
-            else
-                if key == keys.up then
                     sel = sel - 1
                 elseif key == keys.down then
                     sel = sel + 1
-                elseif key == keys.left then
-                    catIdx = catIdx - 1
-                    if catIdx < 1 then catIdx = #CATEGORIES end
-                    sel = 1
-                    offset = 1
-                elseif key == keys.right then
-                    catIdx = catIdx + 1
-                    if catIdx > #CATEGORIES then catIdx = 1 end
-                    sel = 1
-                    offset = 1
                 elseif key == keys.enter then
                     local act = doRun()
                     if act then return act end
-                elseif key == keys.tab then
-                    focus = "search"
                 elseif key == keys.r then
                     local act = doRun()
                     if act then return act end
@@ -358,30 +377,67 @@ function L.run(programs)
                 elseif key == keys.q then
                     return { action = "quit" }
                 elseif key == keys.b then
-                    search = ""
-                    catIdx = 1
+                    exitView()
+                end
+            else
+                if key == keys.up then
+                    sel = sel - 1
+                elseif key == keys.down then
+                    sel = sel + 1
+                elseif view == "main" and key == keys.left then
+                    catIdx = catIdx - 1
+                    if catIdx < 1 then catIdx = #CATEGORIES end
                     sel = 1
                     offset = 1
+                elseif view == "main" and key == keys.right then
+                    catIdx = catIdx + 1
+                    if catIdx > #CATEGORIES then catIdx = 1 end
+                    sel = 1
+                    offset = 1
+                elseif key == keys.enter then
+                    local act = doRun()
+                    if act then return act end
+                elseif key == keys.tab then
+                    setView("search")
+                elseif key == keys.f then
+                    setView("frequent")
+                elseif key == keys.l then
+                    setView("last")
+                elseif key == keys.r then
+                    local act = doRun()
+                    if act then return act end
+                elseif key == keys.i then
+                    doInfo()
+                elseif key == keys.p then
+                    doPin()
+                elseif key == keys.q then
+                    return { action = "quit" }
+                elseif key == keys.b then
+                    if view == "main" then
+                        search = ""
+                        catIdx = 1
+                        sel = 1
+                        offset = 1
+                    else
+                        exitView()
+                    end
                 end
             end
         elseif ev == "char" then
-            if focus == "search" then
+            if view == "search" then
                 search = search .. p1
                 sel = 1
                 offset = 1
             end
         elseif ev == "mouse_click" then
             local mx, my = p2, p3
-            -- Clicking the search row toggles search focus. Clicking
-            -- anything else leaves search focus, so the keyboard
-            -- shortcuts work again instead of typing into search.
-            -- Before this fix, clicking search a second time did
-            -- nothing, and clicking a program left focus in search,
-            -- so every letter key kept typing into the search box.
-            if my == 2 then
-                if focus == "search" then focus = "list" else focus = "search" end
+            local viewHit = nil
+            for _, r in ipairs(viewRects) do
+                if my == r.y and mx >= r.x1 and mx <= r.x2 then viewHit = r.view break end
+            end
+            if viewHit then
+                setView(viewHit)
             else
-                focus = "list"
                 local btn = mtui.buttonAt(btnRects, mx, my)
                 if btn == "run" then
                     local act = doRun()
@@ -393,46 +449,33 @@ function L.run(programs)
                 elseif btn == "quit" then
                     return { action = "quit" }
                 elseif btn == "back" then
-                    search = ""
-                    catIdx = 1
-                    sel = 1
-                    offset = 1
-                else
-                local handled = false
-                for _, r in ipairs(catRects) do
-                    if my == r.y and mx >= r.x1 and mx <= r.x2 then
-                        catIdx = r.idx
+                    if view == "main" then
+                        search = ""
+                        catIdx = 1
                         sel = 1
                         offset = 1
-                        handled = true
-                        break
+                    else
+                        exitView()
                     end
-                end
-                if not handled then
-                    for _, r in ipairs(chipRects) do
-                        if my == r.y and mx >= r.x1 and mx <= r.x2 then
-                            local target = byName[r.prog]
-                            if target then
-                                search = ""
-                                for i, cat in ipairs(CATEGORIES) do
-                                    if cat == (target.cat or "Tools") then catIdx = i break end
-                                end
-                                local list = filtered()
-                                for i, item in ipairs(list) do
-                                    if item == target then sel = i break end
-                                end
+                else
+                    local handled = false
+                    if view == "main" then
+                        for _, r in ipairs(catRects) do
+                            if my == r.y and mx >= r.x1 and mx <= r.x2 then
+                                catIdx = r.idx
+                                sel = 1
+                                offset = 1
+                                handled = true
+                                break
                             end
-                            handled = true
-                            break
                         end
                     end
+                    if not handled and my >= drawListTop and my <= drawListBottom then
+                        local list = filtered()
+                        local idx = offset + (my - drawListTop)
+                        if list[idx] then sel = idx end
+                    end
                 end
-                if not handled and my >= listTop and my <= listBottom then
-                    local list = filtered()
-                    local idx = offset + (my - listTop)
-                    if list[idx] then sel = idx end
-                end
-            end
             end
         end
     end
