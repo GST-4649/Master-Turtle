@@ -1,4 +1,4 @@
-local version = 20261102.0700
+local version = 20261102.0800
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Main screen: title, three view buttons, categories, program list,
@@ -197,21 +197,21 @@ function L.run(programs)
         local w, h = term.getSize()
         mtui.clear()
         mtui.header("MASTER TURTLE")
-        -- Row 2: view buttons. Active view is yellow.
+        -- Row 2: view buttons, real button shapes with a solid
+        -- background, no square brackets. Active view is yellow.
         viewRects = {}
         local viewButtons = {
-            { view = "search", label = "[(Tab)Search]" },
-            { view = "frequent", label = "[(F)requent]" },
-            { view = "last", label = "[(L)ast]" },
+            { view = "search", label = "(Tab)Search" },
+            { view = "frequent", label = "(F)requent" },
+            { view = "last", label = "(L)ast" },
         }
         local x = 1
         for _, b in ipairs(viewButtons) do
-            if x + #b.label - 1 <= w then
-                term.setCursorPos(x, 2)
-                if view == b.view then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
-                term.write(b.label)
-                viewRects[#viewRects + 1] = { view = b.view, x1 = x, x2 = x + #b.label - 1, y = 2 }
-                x = x + #b.label + 1
+            local btnWidth = #b.label + 2
+            if x + btnWidth - 1 <= w then
+                mtui.tabButton(x, 2, b.label, view == b.view)
+                viewRects[#viewRects + 1] = { view = b.view, x1 = x, x2 = x + btnWidth - 1, y = 2 }
+                x = x + btnWidth + 1
             end
         end
         -- Search bar row, only in search view.
@@ -229,16 +229,15 @@ function L.run(programs)
             local catY = 3
             x = 1
             for i, cat in ipairs(CATEGORIES) do
-                local label = "[" .. cat .. "]"
-                if x > 1 and x + #label - 1 > w then
+                local label = cat
+                local btnWidth = #label + 2
+                if x > 1 and x + btnWidth - 1 > w then
                     catY = catY + 1
                     x = 1
                 end
-                term.setCursorPos(x, catY)
-                if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
-                term.write(label)
-                catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = catY }
-                x = x + #label + 1
+                mtui.tabButton(x, catY, label, i == catIdx)
+                catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + btnWidth - 1, y = catY }
+                x = x + btnWidth + 1
             end
             listTop = catY + 1
         end

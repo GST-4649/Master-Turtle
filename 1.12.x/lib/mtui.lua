@@ -1,4 +1,4 @@
-version = 20261102.0300
+version = 20261102.0400
 -- lib/mtui.lua
 -- Shared native term UI for the Master Turtle launcher and Daniel's
 -- own programs, in quarry-ui style. No SceneMgr, no lib/ui.
@@ -144,6 +144,40 @@ function M.showInsights(name, session, lifetime, extra)
         local ev = os.pullEvent()
         if ev == "key" or ev == "mouse_click" then break end
     end
+end
+
+-- Draw one button shaped tab at x, y: a space, the label, a space,
+-- with a solid background. Active tabs get a yellow background with
+-- black text, inactive tabs get a gray background with white text.
+-- On a non color turtle, active tabs invert to white background
+-- with black text so they still stand out. Returns the button width.
+-- This is the mtui version of a button: lib/ui Button needs a
+-- SceneMgr scene and is usually 3 rows tall, which would waste
+-- two rows per tab row here, so it is not used for the launcher.
+function M.tabButton(x, y, label, active)
+    local width = #label + 2
+    term.setCursorPos(x, y)
+    if isColor() then
+        if active then
+            term.setBackgroundColor(colors.yellow)
+            term.setTextColor(colors.black)
+        else
+            term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.white)
+        end
+    else
+        if active then
+            term.setBackgroundColor(colors.white)
+            term.setTextColor(colors.black)
+        else
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+        end
+    end
+    term.write(" " .. label .. " ")
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    return width
 end
 
 function M.progress(percent)
