@@ -1,4 +1,4 @@
-version = 20261102.0100
+version = 20261102.0200
 -- lib/mtui.lua
 -- Shared native term UI for the Master Turtle launcher and Daniel's
 -- own programs, in quarry-ui style. No SceneMgr, no lib/ui.
@@ -144,11 +144,21 @@ end
 
 -- Draw a centered button row at y. Each button is {id, text, fg, bg}.
 -- Returns rects for mouse hit testing: {id, x1, x2, y}.
+-- Gap shrinks to fit a narrow screen: a turtle is 39 wide, not 51.
+-- With gap 2 the launcher buttons total 46, which cropped Back on a
+-- turtle. With gap 0 they total 38, and 39 with the pinned star, so
+-- they fit a turtle and still centre on a 51 wide computer.
 function M.buttonRow(buttons, y)
     local w = term.getSize()
-    local total = 0
-    for _, b in ipairs(buttons) do total = total + #b.text + 2 end
-    total = total + (#buttons - 1) * 2
+    local function totalWith(gap)
+        local total = 0
+        for _, b in ipairs(buttons) do total = total + #b.text + 2 end
+        return total + (#buttons - 1) * gap
+    end
+    local gap = 2
+    if totalWith(gap) > w then gap = 1 end
+    if totalWith(gap) > w then gap = 0 end
+    local total = totalWith(gap)
     local x = math.floor((w - total) / 2) + 1
     if x < 1 then x = 1 end
     local rects = {}
@@ -164,7 +174,7 @@ function M.buttonRow(buttons, y)
         end
         term.write(" " .. b.text .. " ")
         rects[#rects + 1] = { id = b.id, x1 = x, x2 = x + wBtn - 1, y = y }
-        x = x + wBtn + 2
+        x = x + wBtn + gap
     end
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.white)

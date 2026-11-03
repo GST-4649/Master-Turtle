@@ -1,4 +1,4 @@
-local version = 20261102.0100
+local version = 20261102.0200
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Categories AND search, Frequently used, Last used, pinned shortcuts,
@@ -79,6 +79,8 @@ function L.run(programs)
     local btnRects = {}
     local catRects = {}
     local chipRects = {}
+    local listTop = 6
+    local listBottom = 11
 
     local function currentCat()
         return CATEGORIES[catIdx]
@@ -155,26 +157,31 @@ function L.run(programs)
         if usage.last and byName[usage.last] then
             chipRects[#chipRects + 1] = { prog = usage.last, x1 = 7, x2 = 6 + #lastLabel, y = 4 }
         end
-        -- Row 5: categories.
+        -- Categories, wrapped to fit the screen width. A turtle is
+        -- 39 wide, so all seven tabs do not fit on one row. They wrap
+        -- to a second row instead of being dropped, and the list
+        -- starts below the last category row.
         catRects = {}
-        term.setCursorPos(1, 5)
+        local catY = 5
         x = 1
         for i, cat in ipairs(CATEGORIES) do
             local label = "[" .. cat .. "]"
-            if x + #label <= w then
-                term.setCursorPos(x, 5)
-                if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
-                term.write(label)
-                catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = 5 }
-                x = x + #label + 1
+            if x > 1 and x + #label - 1 > w then
+                catY = catY + 1
+                x = 1
             end
+            term.setCursorPos(x, catY)
+            if i == catIdx then mtui.setText(colors.yellow, colors.white) else term.setTextColor(colors.white) end
+            term.write(label)
+            catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = catY }
+            x = x + #label + 1
         end
-        -- List rows 6 to h-2.
+        -- List rows, from below the categories to h-2.
         local list = filtered()
         if sel < 1 then sel = 1 end
         if sel > #list then sel = math.max(1, #list) end
-        local listTop = 6
-        local listBottom = h - 2
+        listTop = catY + 1
+        listBottom = h - 2
         local listRows = listBottom - listTop + 1
         if listRows < 1 then listRows = 1 end
         if sel < offset then offset = sel end
@@ -212,7 +219,12 @@ function L.run(programs)
             term.write(mtui.truncate(info, w))
         end
         local pinLabel = "(P)in"
-        if p and usage.pins[p.prog] then pinLabel = "(P)inned" end
+        if p and usage.pins[p.prog] then
+            -- "(P)inned" plus the other four buttons totals 41 with
+            -- no gap, which crops Back on a 39 wide turtle. Use a
+            -- star on a narrow screen; the list still shows [pinned].
+            if w >= 45 then pinLabel = "(P)inned" else pinLabel = "(P)in*" end
+        end
         btnRects = mtui.buttonRow({
             { id = "run", text = "(R)un", fg = colors.black, bg = colors.lime },
             { id = "info", text = "(I)nfo", fg = colors.white, bg = colors.blue },
@@ -390,9 +402,9 @@ function L.run(programs)
                 end
                 if not handled and my == 2 then
                     focus = "search"
-                elseif not handled and my >= 6 then
+                elseif not handled and my >= listTop and my <= listBottom then
                     local list = filtered()
-                    local idx = offset + (my - 6)
+                    local idx = offset + (my - listTop)
                     if list[idx] then sel = idx end
                 end
             end

@@ -1,4 +1,4 @@
-local version = 20261102.0100
+local version = 20261102.0200
 -- scenes/Dimensions.lua
 -- Dimension prompt dialog, native term style, no SceneMgr, no lib/ui.
 -- Plain module. Dimensions.prompt(program) returns a launch table
@@ -81,14 +81,18 @@ function D.prompt(program)
         mtui.header(program.name .. ": dimensions")
         term.setCursorPos(2, 2)
         mtui.setText(colors.lightGray, colors.lightGray)
-        term.write("Leave blank to be asked by the program.")
+        term.write("Leave blank if the program asks.")
         fieldRows = {}
         local y = 3
+        -- Field column fits the screen: on a 39 wide turtle the old
+        -- fixed column at 29 plus a 16 wide field ran to 44 and was
+        -- cropped. Label width and field width scale with w.
+        local fx = 29
+        if w < 45 then fx = 20 end
         for i, dim in ipairs(program.dims) do
             term.setCursorPos(2, y)
             term.setTextColor(colors.white)
-            term.write(mtui.truncate(dim.label, 26))
-            local fx = 29
+            term.write(mtui.truncate(dim.label, fx - 3))
             term.setCursorPos(fx, y)
             if i == focus then
                 term.setBackgroundColor(colors.blue)
@@ -99,7 +103,7 @@ function D.prompt(program)
             end
             local shown = values[i]
             if shown == "" then shown = " " end
-            term.write(mtui.truncate("[" .. shown .. "]", 16))
+            term.write(mtui.truncate("[" .. shown .. "]", w - fx))
             term.setBackgroundColor(colors.black)
             fieldRows[i] = y
             y = y + 1
