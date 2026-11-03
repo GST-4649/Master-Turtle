@@ -1,4 +1,4 @@
-local version = 20261102.0200
+local version = 20261102.0300
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Categories AND search, Frequently used, Last used, pinned shortcuts,
@@ -80,7 +80,7 @@ function L.run(programs)
     local catRects = {}
     local chipRects = {}
     local listTop = 6
-    local listBottom = 11
+    local listBottom = 12
 
     local function currentCat()
         return CATEGORIES[catIdx]
@@ -176,12 +176,14 @@ function L.run(programs)
             catRects[#catRects + 1] = { idx = i, x1 = x, x2 = x + #label - 1, y = catY }
             x = x + #label + 1
         end
-        -- List rows, from below the categories to h-2.
+        -- List rows, from below the categories to h-1. There is no
+        -- info row above the buttons: that is what the Info button
+        -- is for, so the list gets that row instead.
         local list = filtered()
         if sel < 1 then sel = 1 end
         if sel > #list then sel = math.max(1, #list) end
         listTop = catY + 1
-        listBottom = h - 2
+        listBottom = h - 1
         local listRows = listBottom - listTop + 1
         if listRows < 1 then listRows = 1 end
         if sel < offset then offset = sel end
@@ -210,14 +212,8 @@ function L.run(programs)
             term.setTextColor(colors.lightGray)
             term.write("No match. Clear the search to see all programs.")
         end
-        -- Info row h-1, buttons row h.
+        -- Buttons row h. No info row above it.
         local p = selectedEntry()
-        term.setCursorPos(1, h - 1)
-        term.setTextColor(colors.white)
-        if p then
-            local info = p.name .. ": " .. p.desc .. (p.loop and " [runs until stopped]" or "")
-            term.write(mtui.truncate(info, w))
-        end
         local pinLabel = "(P)in"
         if p and usage.pins[p.prog] then
             -- "(P)inned" plus the other four buttons totals 41 with
@@ -310,6 +306,24 @@ function L.run(programs)
                     search = search:sub(1, -2)
                     sel = 1
                     offset = 1
+                elseif key == keys.up then
+                    focus = "list"
+                    sel = sel - 1
+                elseif key == keys.down then
+                    focus = "list"
+                    sel = sel + 1
+                elseif key == keys.left then
+                    focus = "list"
+                    catIdx = catIdx - 1
+                    if catIdx < 1 then catIdx = #CATEGORIES end
+                    sel = 1
+                    offset = 1
+                elseif key == keys.right then
+                    focus = "list"
+                    catIdx = catIdx + 1
+                    if catIdx > #CATEGORIES then catIdx = 1 end
+                    sel = 1
+                    offset = 1
                 end
             else
                 if key == keys.up then
@@ -355,22 +369,32 @@ function L.run(programs)
             end
         elseif ev == "mouse_click" then
             local mx, my = p2, p3
-            local btn = mtui.buttonAt(btnRects, mx, my)
-            if btn == "run" then
-                local act = doRun()
-                if act then return act end
-            elseif btn == "info" then
-                doInfo()
-            elseif btn == "pin" then
-                doPin()
-            elseif btn == "quit" then
-                return { action = "quit" }
-            elseif btn == "back" then
-                search = ""
-                catIdx = 1
-                sel = 1
-                offset = 1
+            -- Clicking the search row toggles search focus. Clicking
+            -- anything else leaves search focus, so the keyboard
+            -- shortcuts work again instead of typing into search.
+            -- Before this fix, clicking search a second time did
+            -- nothing, and clicking a program left focus in search,
+            -- so every letter key kept typing into the search box.
+            if my == 2 then
+                if focus == "search" then focus = "list" else focus = "search" end
             else
+                focus = "list"
+                local btn = mtui.buttonAt(btnRects, mx, my)
+                if btn == "run" then
+                    local act = doRun()
+                    if act then return act end
+                elseif btn == "info" then
+                    doInfo()
+                elseif btn == "pin" then
+                    doPin()
+                elseif btn == "quit" then
+                    return { action = "quit" }
+                elseif btn == "back" then
+                    search = ""
+                    catIdx = 1
+                    sel = 1
+                    offset = 1
+                else
                 local handled = false
                 for _, r in ipairs(catRects) do
                     if my == r.y and mx >= r.x1 and mx <= r.x2 then
@@ -400,13 +424,12 @@ function L.run(programs)
                         end
                     end
                 end
-                if not handled and my == 2 then
-                    focus = "search"
-                elseif not handled and my >= listTop and my <= listBottom then
+                if not handled and my >= listTop and my <= listBottom then
                     local list = filtered()
                     local idx = offset + (my - listTop)
                     if list[idx] then sel = idx end
                 end
+            end
             end
         end
     end
