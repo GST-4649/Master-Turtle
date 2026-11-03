@@ -1,4 +1,4 @@
-version = 20261102.0200
+version = 20261102.0300
 -- lib/mtui.lua
 -- Shared native term UI for the Master Turtle launcher and Daniel's
 -- own programs, in quarry-ui style. No SceneMgr, no lib/ui.
@@ -68,6 +68,11 @@ function M.truncate(text, width)
 end
 
 -- Scrollable info screen. Any key or mouse click returns.
+-- Wait for a fresh key or mouse click, not any event. Pressing I
+-- queues a key event and then a char event, and a mouse click
+-- queues mouse_click and then mouse_up. The old unfiltered
+-- os.pullEvent() ate that second event and closed the screen at
+-- once, so I looked dead and a mouse click only worked while held.
 function M.showInfo(title, text)
     local w, h = term.getSize()
     M.clear()
@@ -84,7 +89,10 @@ function M.showInfo(title, text)
     term.setCursorPos(2, h - 1)
     M.setText(colors.lightGray, colors.lightGray)
     term.write("Press any key to return.")
-    os.pullEvent()
+    while true do
+        local ev = os.pullEvent()
+        if ev == "key" or ev == "mouse_click" then break end
+    end
 end
 
 -- Loop insights: session count live, lifetime total in a file on the turtle.
@@ -132,7 +140,10 @@ function M.showInsights(name, session, lifetime, extra)
     term.setCursorPos(2, h - 1)
     M.setText(colors.lightGray, colors.lightGray)
     term.write("Press any key to return.")
-    os.pullEvent()
+    while true do
+        local ev = os.pullEvent()
+        if ev == "key" or ev == "mouse_click" then break end
+    end
 end
 
 function M.progress(percent)
