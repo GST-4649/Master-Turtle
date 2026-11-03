@@ -1,4 +1,4 @@
-local version = 20261102.0300
+local version = 20261102.0400
 -- scenes/Launcher.lua
 -- Master Turtle launcher, native term style, no SceneMgr, no lib/ui.
 -- Categories AND search, Frequently used, Last used, pinned shortcuts,
@@ -126,10 +126,19 @@ function L.run(programs)
         local w, h = term.getSize()
         mtui.clear()
         mtui.header("MASTER TURTLE")
-        -- Row 2: search. Tab or click to focus it.
+        -- Row 2: search. Tab or click to focus it, Tab or click
+        -- again to leave it. The hint is on the row itself, because
+        -- before this fix there was no way to know Tab did that.
         term.setCursorPos(1, 2)
         term.setTextColor(colors.white)
-        local searchLine = "Search: " .. search .. (focus == "search" and "_" or "")
+        local searchLine
+        if focus == "search" then
+            searchLine = "Search: " .. search .. "_ (Tab to exit)"
+        elseif search == "" then
+            searchLine = "Search: (Tab to type)"
+        else
+            searchLine = "Search: " .. search .. " (Tab to type)"
+        end
         term.write(mtui.truncate(searchLine, w))
         -- Row 3: frequently used chips.
         chipRects = {}
