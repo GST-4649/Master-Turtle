@@ -1,0 +1,1053 @@
+version = 20261108.2200
+local mtui = require("lib.mtui")
+local allowedLib = require("lib.allowedBlocks")
+local allowedBlocks = allowedLib.allowedBlocks
+local Resume = require("lib.Resume")
+local LoopSetup = require("lib.LoopSetup")
+local LoopFuel = require("lib.LoopFuel")
+-- BUILDER v1.0
+-- Date: 2026-11-08
+-- One program replacing platformer, trump, framer, filler, torcher.
+-- Modes: floor walls solid hollow roof (platformer), wall (trump),
+-- frame shell (framer), fill (filler), torch (torcher).
+-- Axes: length Z, width X, height up. Torch mode keeps torcher's own
+-- prompts (length X, width Z) and its grid, unchanged.
+-- Save after every move and turn. The save file is the turtle's only
+-- position: there is no GPS. All five modes resume.
+-- UI redraws only when the shown percent changes. Filler keeps its
+-- 1 second settle sleep. Torcher grid points are 1, 8, 16, 24 from
+-- the start cell, one torch every 8, turtle one block above ground.
+
+local VERSION = "1.0"
+local RESTORE_FILE = ".builder_restore"
+local LOG_FILE = "builder_log.txt"
+local builder_backup = "startup_old_builder"
+
+local tArgs = { ... }
+
+local params = {
+    length = 0,
+    width = 0,
+    mode = nil,      -- floor|walls|solid|hollow|roof|wall|frame|shell|fill|torch
+    height = nil,    -- layers for walls|solid|hollow|wall; blocks up for roof
+    depth = nil,     -- wall thickness in X
+    size = nil,      -- cube size for frame|shell
+    spacing = 8,     -- torch spacing, torcher used 8
+    inverted = nil,  -- true = place up instead of down (platformer modes)
+    debug = false,
+}
+
+-- Current state, persisted. cells is rebuilt from params on load,
+-- never stored: the ordered cell list is deterministic.
+local state = {
+    x = 0,
+    z = 0,
+    y = 0,          -- vertical offset from start height (up positive)
+    facing = 0,     -- 0=Forward (+Z), 1=Right (+X), 2=Back (-Z), 3=Left (-X)
+    built = 0,
+    idx = 1,        -- next cell to work, 1-based into the cell list
+    layer = 1,
+    descending = false, -- true while coming back down after a roof build
+    descended = false,  -- true once the roof descent finished
+    isReturning = false,
+    preset = nil,   -- launcher preset picked: Platformer, TRMP, Framer, Filler, Torcher
+    params = params,
+}
+
+local cells = {}     -- ordered {x, z, y} cells to work, built after params
+local topY = 0       -- highest cell y, sets the safe fly-above height
+local cfg = nil      -- LoopSetup answers (fuel chest side, lava, tags)
+local tripEst = 0    -- one-way fuel estimate: block count + travel margin
+local checkFuel      -- proactive fuel evac; defined below with the trip code
+local drawUI         -- defined below; homeTrip uses it
+local lastPercent = -1
+
+--------------------------------------
+-- LOGGING & HELPERS
+--------------------------------------
+local function log(message)
+    local f = fs.open(LOG_FILE, "a")
+    if f then
+        f.writeLine("[" .. os.day() .. "-" .. textutils.formatTime(os.time(), true) .. "] " .. message)
+        f.close()
+    end
+end
+
+local function colorPrint(message, color)
+    if term.isColor() then term.setTextColor(color) end
+    print(message)
+    if term.isColor() then term.setTextColor(colors.white) end
+end
+
+local function saveProgress()
+    Resume.save(RESTORE_FILE, state)
+end
+
+local function readNum(message)
+    colorPrint(message, colors.orange)
+    local n = tonumber(read())
+    while not n or n <= 0 do
+        colorPrint("Enter a valid positive number:", colors.red)
+        n = tonumber(read())
+    end
+    return math.floor(n)
+end
+
+--------------------------------------
+-- STARTUP & CLEANUP
+--------------------------------------
+local function createStartup()
+    Resume.installBootResume("-- Builder Auto-Resume", builder_backup)
+end
+
+local function cleanupStartup()
+    Resume.removeBootResume("-- Builder Auto-Resume", builder_backup)
+end
+
+local function fullCleanup()
+    Resume.clear(RESTORE_FILE)
+    cleanupStartup()
+    if fs.exists(LOG_FILE) then fs.delete(LOG_FILE) end
+end
+
+local function applyParamDefaults()
+    local p = state.params
+    if p.spacing == nil or p.spacing < 1 then p.spacing = 8 end
+    if p.inverted == nil then p.inverted = false end
+    if p.height == nil then p.height = 1 end
+    if state.y == nil then state.y = 0 end
+    if state.idx == nil or state.idx < 1 then state.idx = 1 end
+    if state.layer == nil then state.layer = 1 end
+    if state.descending == nil then state.descending = false end
+    if state.descended == nil then state.descended = false end
+    if state.built == nil then state.built = 0 end
+end
+
+local function loadProgress()
+    local data = Resume.load(RESTORE_FILE)
+    if data then
+        state = data
+        state.params = state.params or params
+        params = state.params
+        applyParamDefaults()
+        return true
+    end
+    return false
+end
+
+--------------------------------------
+-- MATERIAL PREDICATES
+--------------------------------------
+local fallingBlocks = {
+    ["minecraft:sand"] = true,
+    ["minecraft:red_sand"] = true,
+    ["minecraft:gravel"] = true,
+    ["minecraft:suspicious_sand"] = true,
+    ["minecraft:suspicious_gravel"] = true,
+    ["minecraft:concrete_powder"] = true,
+}
+
+local function isFallingBlock(name)
+    if not name then return false end
+    local id = name:lower()
+    if fallingBlocks[id] then return true end
+    if id:find("concrete_powder") then return true end
+    return false
+end
+
+-- Framer allowance: allowed blocks plus bars, walls, fences.
+local function isFramerAllowed(name)
+    if allowedBlocks(name) then return true end
+    local n = string.lower(name)
+    if n:find("bars") then return true end
+    if n:find("_wall$") then return true end
+    if n:find("_fence$") then return true end
+    if n:find("fence_") then return true end
+    return false
+end
+
+local function isTorch(name)
+    return name == "minecraft:torch" or name == "minecraft:soul_torch"
+end
+
+local function isMaterial(name)
+    local m = state.params.mode
+    if m == "fill" then return isFallingBlock(name) end
+    if m == "torch" then return isTorch(name) end
+    if m == "frame" or m == "shell" then return isFramerAllowed(name) end
+    return allowedBlocks(name)
+end
+
+local function selectMaterial()
+    for slot = 1, 16 do
+        local detail = turtle.getItemDetail(slot)
+        if detail and detail.count > 0 and isMaterial(detail.name) then
+            turtle.select(slot)
+            return true
+        end
+    end
+    return false
+end
+
+local function countMaterial()
+    local total = 0
+    for i = 1, 16 do
+        local detail = turtle.getItemDetail(i)
+        if detail and isMaterial(detail.name) then
+            total = total + detail.count
+        end
+    end
+    return total
+end
+
+local function materialMessage()
+    local m = state.params.mode
+    if m == "fill" then return "Required: FALLING blocks (Sand, Gravel, etc.)" end
+    if m == "torch" then return "Required: torches. Add torches to inventory or place a chest." end
+    if m == "frame" or m == "shell" then return "Required: bars, walls, fences, or ALLOWED blocks." end
+    return "Please add ALLOWED blocks to inventory or place a chest next to the turtle."
+end
+
+--------------------------------------
+-- MOVEMENT (Coordinate System)
+--------------------------------------
+-- 0:+Z, 1:+X, 2:-Z, 3:-X. Save after every move and turn: the save
+-- file is the turtle's only position.
+local function turnRight()
+    turtle.turnRight()
+    state.facing = (state.facing + 1) % 4
+    saveProgress()
+end
+
+local function turnLeft()
+    turtle.turnLeft()
+    state.facing = (state.facing + 3) % 4
+    saveProgress()
+end
+
+local function turnTo(targetFace)
+    local diff = (targetFace - state.facing) % 4
+    if diff == 1 then turnRight()
+    elseif diff == 2 then turnRight(); turnRight()
+    elseif diff == 3 then turnLeft()
+    end
+end
+
+-- Bounded dig: a dig that keeps failing means bedrock or another
+-- unbreakable block. Fail loudly instead of hanging forever.
+local function forward()
+    checkFuel()
+    local tries = 0
+    while not turtle.forward() do
+        tries = tries + 1
+        if tries > 20 then error("Blocked: cannot move forward", 0) end
+        if not turtle.dig() then turtle.attack() end
+        sleep(0.5)
+    end
+    if state.facing == 0 then state.z = state.z + 1
+    elseif state.facing == 1 then state.x = state.x + 1
+    elseif state.facing == 2 then state.z = state.z - 1
+    elseif state.facing == 3 then state.x = state.x - 1
+    end
+    saveProgress()
+end
+
+local function up()
+    checkFuel()
+    local tries = 0
+    while not turtle.up() do
+        tries = tries + 1
+        if tries > 20 then error("Blocked: cannot move up", 0) end
+        turtle.digUp()
+        sleep(0.5)
+    end
+    state.y = state.y + 1
+    saveProgress()
+end
+
+local function down()
+    checkFuel()
+    local tries = 0
+    while not turtle.down() do
+        tries = tries + 1
+        if tries > 20 then error("Blocked: cannot move down", 0) end
+        turtle.digDown()
+        sleep(0.5)
+    end
+    state.y = state.y - 1
+    saveProgress()
+end
+
+local function goTo(tx, tz)
+    if state.x < tx then
+        turnTo(1)
+        while state.x < tx do forward() end
+    elseif state.x > tx then
+        turnTo(3)
+        while state.x > tx do forward() end
+    end
+    if state.z < tz then
+        turnTo(0)
+        while state.z < tz do forward() end
+    elseif state.z > tz then
+        turnTo(2)
+        while state.z > tz do forward() end
+    end
+end
+
+local function goToY(ty)
+    while state.y < ty do up() end
+    while state.y > ty do down() end
+end
+
+-- Raw descent: land on top of the stack below, or on the ground.
+-- Never digs. Used for landing after a fly-above trip.
+local function land()
+    while state.y > 0 and not turtle.detectDown() do
+        if not turtle.down() then break end
+        state.y = state.y - 1
+        saveProgress()
+    end
+end
+
+--------------------------------------
+-- HOME TRIP, REFILL, FUEL
+--------------------------------------
+local inTrip = false -- true during a home trip (no nested trips)
+
+-- Fly above the build, cross to the start, land, do the work, fly
+-- back and land on the work column. The work runs at the start, where
+-- fuel and chests are, and the user can add blocks directly.
+local function homeTrip(work)
+    if inTrip then return end
+    inTrip = true
+    local rx, rz, ry, rf = state.x, state.z, state.y, state.facing
+    state.isReturning = true
+    local safeY = topY + 1
+    while state.y < safeY do up() end
+    goTo(0, 0)
+    land()
+    work()
+    while state.y < safeY do up() end
+    goTo(rx, rz)
+    land()
+    goToY(ry)
+    turnTo(rf)
+    state.isReturning = false
+    inTrip = false
+    drawUI(true)
+end
+
+local function topUpFuel()
+    -- Fixed-point refuel at the start. If the point is dry, wait for
+    -- fuel items here (reachable); Q aborts and the program stops quietly.
+    if not LoopFuel.refuelAtStart(cfg, 2 * tripEst) then
+        if not LoopFuel.waitForFuel(cfg, 2 * tripEst) then
+            error("", 0)
+        end
+    end
+end
+
+checkFuel = function()
+    -- Proactive fuel evac: head home while the trip is still affordable.
+    if inTrip or not cfg then return end
+    local dist = math.abs(state.x) + math.abs(state.z) + math.abs(state.y or 0)
+    if LoopFuel.needEvac(dist) then
+        log("Fuel evac at " .. state.x .. "," .. state.z)
+        homeTrip(topUpFuel)
+    end
+end
+
+local function performRefillSequence()
+    log("Refill required at " .. state.x .. "," .. state.z)
+    homeTrip(function()
+        topUpFuel()
+        while not selectMaterial() do
+            turtle.suck()
+            turtle.suckUp()
+            turtle.suckDown()
+            term.clear()
+            term.setCursorPos(1, 1)
+            mtui.header("WAITING FOR BLOCKS")
+            print("Turtle returned to 0,0 for refill.")
+            print(materialMessage())
+            print("")
+            print("Next check in 30 seconds...")
+            sleep(30)
+        end
+    end)
+    log("Refill successful. Returning to work.")
+end
+
+--------------------------------------
+-- UI (redraw only when the percent changes)
+--------------------------------------
+local function totalCells()
+    return #cells
+end
+
+drawUI = function(force)
+    local total = totalCells()
+    local percent = 0
+    if total > 0 then percent = math.floor((state.built / total) * 100) end
+    if not force and percent == lastPercent then return end
+    lastPercent = percent
+    term.clear()
+    term.setCursorPos(1, 1)
+    mtui.header("BUILDER v" .. VERSION .. " " .. tostring(state.params.mode))
+    print(string.rep("=", 30))
+    colorPrint("Built: " .. state.built .. " / " .. total, colors.orange)
+    print("Pos: " .. state.x .. "," .. state.z .. "," .. state.y .. " Facing: " .. state.facing)
+    print("Mode: " .. tostring(state.params.mode) .. "  Layer: " .. state.layer)
+    local fuel = turtle.getFuelLevel()
+    local fuelMax = turtle.getFuelLimit()
+    io.write("Fuel: ")
+    if fuel < 500 then
+        colorPrint(fuel .. " (LOW)", colors.red)
+    else
+        colorPrint(fuel .. " / " .. fuelMax, colors.green)
+    end
+    colorPrint("Press Q (Instant) to Terminate", colors.red)
+    print(mtui.progress(percent))
+    print(string.rep("=", 30))
+    if state.isReturning then
+        colorPrint(">> RETURNING TO " .. (state.x == 0 and state.z == 0 and "REFILL" or "WORK") .. " <<", colors.magenta)
+    end
+end
+
+--------------------------------------
+-- PLACEMENT
+--------------------------------------
+local function placeSmart()
+    -- Debug / dry run: count the cell, place nothing.
+    if state.params.debug then return true end
+    local placeUp = state.params.inverted
+    local exists, data
+    if placeUp then
+        exists, data = turtle.inspectUp()
+    else
+        exists, data = turtle.inspectDown()
+    end
+    if exists then
+        if not isMaterial(data.name) then
+            local ok
+            if placeUp then ok = turtle.digUp() else ok = turtle.digDown() end
+            if not ok then error("Blocked: cannot clear block " .. (placeUp and "above" or "below"), 0) end
+        else
+            return true -- Already a valid block
+        end
+    end
+    while not selectMaterial() do
+        performRefillSequence()
+    end
+    local placed
+    if placeUp then placed = turtle.placeUp() else placed = turtle.placeDown() end
+    if not placed then error("Place failed", 0) end
+    return true
+end
+
+local function fillColumn()
+    -- Filler logic, unchanged: place a falling block, wait a full
+    -- second so it lands, then check it stayed. Faster polling reads
+    -- a block mid-fall as done, so the 1 second stays.
+    if state.params.debug then
+        print("Debug: Simulating fill at " .. state.x .. "," .. state.z)
+        sleep(0.5)
+        return
+    end
+    while true do
+        local exists, data = turtle.inspectDown()
+        if exists and isFallingBlock(data.name) then
+            break -- Column is already filled up to this level
+        end
+        while not selectMaterial() do
+            performRefillSequence()
+        end
+        local detail = turtle.getItemDetail()
+        local placedName = detail.name
+        if turtle.placeDown() then
+            sleep(1)
+            local stillExists, stillData = turtle.inspectDown()
+            if stillExists and stillData.name == placedName then
+                break -- It stayed: column is full at this coordinate
+            end
+            -- It fell, so loop and place again.
+        else
+            -- Blocked by something non-replaceable: break rather than loop forever.
+            break
+        end
+    end
+end
+
+local function placeTorch()
+    while not selectMaterial() do
+        performRefillSequence()
+    end
+    turtle.placeDown()
+end
+
+--------------------------------------
+-- CELL SETS (one ordered list per mode, each cell visited once)
+--------------------------------------
+local function isPerimeter(x, z)
+    return x == 0 or x == state.params.width - 1
+        or z == 0 or z == state.params.length - 1
+end
+
+local function shouldPlace(x, z, layer)
+    local mode = state.params.mode
+    if mode == "walls" then
+        return isPerimeter(x, z)
+    elseif mode == "hollow" then
+        local h = state.params.height
+        if layer == 1 or layer == h then return true end -- floor and roof layers are solid
+        return isPerimeter(x, z)
+    end
+    return true -- floor, roof, solid, wall place every cell
+end
+
+-- Snake columns for one layer: x across, z snaking back and forth.
+local function addSnakeLayer(list, y, length, width, layer)
+    for x = 0, width - 1 do
+        if x % 2 == 0 then
+            for z = 0, length - 1 do
+                if shouldPlace(x, z, layer) then
+                    list[#list + 1] = { x = x, z = z, y = y }
+                end
+            end
+        else
+            for z = length - 1, 0, -1 do
+                if shouldPlace(x, z, layer) then
+                    list[#list + 1] = { x = x, z = z, y = y }
+                end
+            end
+        end
+    end
+end
+
+-- Perimeter ring of a side-by-side square, in walking order, no repeats.
+local function addRing(list, y, side)
+    if side <= 1 then
+        list[#list + 1] = { x = 0, z = 0, y = y }
+        return
+    end
+    local max = side - 1
+    for z = 0, max do list[#list + 1] = { x = 0, z = z, y = y } end
+    for x = 1, max do list[#list + 1] = { x = x, z = max, y = y } end
+    for z = max - 1, 0, -1 do list[#list + 1] = { x = max, z = z, y = y } end
+    for x = max - 1, 1, -1 do list[#list + 1] = { x = x, z = 0, y = y } end
+end
+
+-- Torcher grid offsets from the start cell, 0-based: 0, 7, 15, 23...
+-- Torcher's 1-based points were 1, 8, 16, 24, same spacing.
+local function gridOffsets(limit, spacing)
+    local pos = { 0 }
+    local nextP = spacing - 1
+    while nextP < limit do
+        pos[#pos + 1] = nextP
+        nextP = nextP + spacing
+    end
+    return pos
+end
+
+local function buildCells()
+    local p = state.params
+    local mode = p.mode
+    local list = {}
+    if mode == "floor" then
+        addSnakeLayer(list, 0, p.length, p.width, 1)
+    elseif mode == "walls" or mode == "solid" or mode == "hollow" then
+        for layer = 1, p.height do
+            addSnakeLayer(list, layer - 1, p.length, p.width, layer)
+        end
+    elseif mode == "roof" then
+        local y = 0
+        if not p.inverted then y = p.height end
+        addSnakeLayer(list, y, p.length, p.width, 1)
+    elseif mode == "wall" then
+        -- Trump solid box: length Z, depth X, height up.
+        for layer = 1, p.height do
+            addSnakeLayer(list, layer - 1, p.length, p.depth, layer)
+        end
+    elseif mode == "frame" then
+        -- Framer v0.1 walked size-1 per edge, so its ring is one
+        -- smaller than the cube size. Keep that shape, deduped:
+        -- one ring per layer, each cell visited once.
+        local side = p.size - 1
+        if side < 1 then side = 1 end
+        for layer = 1, p.size do
+            addRing(list, layer - 1, side)
+        end
+    elseif mode == "shell" then
+        for layer = 1, p.size do
+            addRing(list, layer - 1, p.size)
+        end
+    elseif mode == "fill" then
+        -- One cell per column, snake order. fillColumn fills each.
+        for x = 0, p.width - 1 do
+            if x % 2 == 0 then
+                for z = 0, p.length - 1 do
+                    list[#list + 1] = { x = x, z = z, y = 0 }
+                end
+            else
+                for z = p.length - 1, 0, -1 do
+                    list[#list + 1] = { x = x, z = z, y = 0 }
+                end
+            end
+        end
+    elseif mode == "torch" then
+        -- Torcher grid, unchanged: length is X, width is Z here.
+        -- Rows run along Z (width), columns along X (length), snaking.
+        local rows = gridOffsets(p.width, p.spacing)
+        local cols = gridOffsets(p.length, p.spacing)
+        for r, z in ipairs(rows) do
+            if r % 2 == 1 then
+                for _, x in ipairs(cols) do
+                    list[#list + 1] = { x = x, z = z, y = 0 }
+                end
+            else
+                for i = #cols, 1, -1 do
+                    list[#list + 1] = { x = cols[i], z = z, y = 0 }
+                end
+            end
+        end
+    end
+    cells = list
+    topY = 0
+    for _, c in ipairs(cells) do
+        if c.y > topY then topY = c.y end
+    end
+end
+
+--------------------------------------
+-- BUILD
+--------------------------------------
+local function doCell(cell)
+    local mode = state.params.mode
+    if mode == "fill" then
+        fillColumn()
+    elseif mode == "torch" then
+        placeTorch()
+    else
+        placeSmart()
+    end
+    state.built = state.built + 1
+end
+
+local function runCells()
+    while state.idx <= #cells do
+        local cell = cells[state.idx]
+        state.layer = cell.y + 1
+        goToY(cell.y)
+        goTo(cell.x, cell.z)
+        doCell(cell)
+        state.idx = state.idx + 1
+        saveProgress()
+        drawUI()
+    end
+end
+
+local function doDescent()
+    -- Roof finish: step off the roof footprint before descending,
+    -- the column we ascended through is now roofed over.
+    state.descending = true
+    saveProgress()
+    goTo(state.params.width, 0)
+    while state.y > 0 do down() end
+    state.descending = false
+    state.descended = true
+    saveProgress()
+    goTo(0, 0)
+end
+
+local function buildLogic()
+    log("Starting build, mode=" .. tostring(state.params.mode))
+    state.isReturning = false
+    if state.descending and not state.descended then
+        doDescent() -- resume in the middle of the roof descent
+    elseif state.idx <= #cells then
+        runCells()
+        if state.params.mode == "roof" and not state.params.inverted
+            and state.params.height > 0 and not state.descended then
+            doDescent()
+        end
+    elseif state.params.mode == "roof" and not state.params.inverted
+        and state.params.height > 0 and not state.descended then
+        doDescent() -- resume after the cells, before the descent
+    end
+    drawUI(true)
+    log("Build complete.")
+    state.isReturning = true
+    goTo(0, 0)
+    -- Best-effort return to start height: move toward y=0 but stop
+    -- rather than dig through the structure (matters for solid mode).
+    while state.y > 0 and not turtle.detectDown() do
+        if not turtle.down() then break end
+        state.y = state.y - 1
+        saveProgress()
+    end
+    while state.y < 0 and not turtle.detectUp() do
+        if not turtle.up() then break end
+        state.y = state.y + 1
+        saveProgress()
+    end
+    turnTo(0)
+    colorPrint("Build Completed Successfully!", colors.green)
+    fullCleanup()
+    state.built = totalCells() -- Ensure 100%
+end
+
+local function listenForExit()
+    while true do
+        local ev, p1 = os.pullEvent()
+        if ev == "key" and p1 == keys.q then
+            error("Terminated", 0)
+        end
+    end
+end
+
+local function runBuild()
+    parallel.waitForAny(buildLogic, listenForExit)
+end
+
+--------------------------------------
+-- FUEL & RESTOCK WARNINGS, SESSION MATERIALS
+--------------------------------------
+local function warnRestock()
+    -- Over 960 blocks (15 stacks) the turtle cannot carry it all,
+    -- so a mid-run restock will be needed via the return-to-start trip.
+    local need = totalCells()
+    if need > 960 then
+        colorPrint("WARNING: This job needs " .. need .. " blocks, over 960 (15 stacks).", colors.red)
+        colorPrint("A mid-run restock will be needed; the turtle returns to 0,0 for it.", colors.orange)
+    end
+    if state.params.mode == "fill" then
+        colorPrint("Note: fill estimate counts columns only; deep holes use more blocks.", colors.orange)
+    end
+end
+
+local function offerSessionMaterials()
+    -- Plan item 8B: offer the distinct block types already in inventory
+    -- (slots 1-15; 16 is the fuel/bucket slot) as this run's material
+    -- list. Session-only; nothing is stored. Fill and torch have fixed
+    -- materials, so they skip this.
+    local m = state.params.mode
+    if m == "fill" or m == "torch" then return end
+    local seen, names = {}, {}
+    for i = 1, 15 do
+        local d = turtle.getItemDetail(i)
+        if d and d.name and not d.name:lower():find("bucket", 1, true) then
+            local n = d.name:lower()
+            if not seen[n] then
+                seen[n] = true
+                names[#names + 1] = d.name
+            end
+        end
+    end
+    if #names == 0 then return end
+    colorPrint("Block types in inventory:", colors.orange)
+    for _, n in ipairs(names) do print("  " .. n) end
+    io.write("Use these block types as build material for this run? [Y/n] ")
+    local ans = (read() or ""):lower()
+    if ans == "" or ans == "y" or ans == "yes" then
+        local set = {}
+        for n in pairs(seen) do set[n] = true end
+        if allowedLib.setSession then allowedLib.setSession(set) end
+        colorPrint("Session material list set (" .. #names .. " types).", colors.green)
+    end
+end
+
+--------------------------------------
+-- ENTRY POINTS
+--------------------------------------
+local validModes = {
+    floor = true, walls = true, solid = true, hollow = true, roof = true,
+    wall = true, frame = true, shell = true, fill = true, torch = true,
+}
+
+local function normalizeMode(raw)
+    if not raw then return nil end
+    local m = tostring(raw):lower()
+    if m == "trmp" then m = "wall" end
+    if m == "filler" then m = "fill" end
+    if m == "torcher" then m = "torch" end
+    if validModes[m] then return m end
+    return nil
+end
+
+local function parseArgs()
+    -- CLI: builder -length 20 -width 12 [-mode walls] [-height 5]
+    -- [-inverted] [-depth 2] [-size 4] [-spacing 8] [-debug]
+    -- Flags that take a value consume the next arg; -inverted and
+    -- -debug take none, so later flags still parse.
+    local i = 1
+    while i <= #tArgs do
+        local k = tArgs[i]
+        if k == "-length" then params.length = tonumber(tArgs[i + 1]) or 0; i = i + 2
+        elseif k == "-width" then params.width = tonumber(tArgs[i + 1]) or 0; i = i + 2
+        elseif k == "-mode" then params.mode = normalizeMode(tArgs[i + 1]); i = i + 2
+        elseif k == "-height" then params.height = math.floor(tonumber(tArgs[i + 1]) or 0); i = i + 2
+        elseif k == "-depth" then params.depth = math.floor(tonumber(tArgs[i + 1]) or 0); i = i + 2
+        elseif k == "-size" then params.size = math.floor(tonumber(tArgs[i + 1]) or 0); i = i + 2
+        elseif k == "-spacing" then params.spacing = math.floor(tonumber(tArgs[i + 1]) or 8); i = i + 2
+        elseif k == "-inverted" then params.inverted = true; i = i + 1
+        elseif k == "-debug" then params.debug = true; i = i + 1
+        else i = i + 1 end
+    end
+end
+
+local function promptPreset()
+    -- Old program names as presets. Picking one sets the mode family
+    -- and gives the same prompts that program used to give.
+    if params.mode then return end
+    term.clear()
+    term.setCursorPos(1, 1)
+    mtui.header("BUILDER v" .. VERSION)
+    colorPrint("Pick a preset (old program names):", colors.orange)
+    colorPrint("  1) Platformer - floor/walls/solid/hollow/roof", colors.lightGray)
+    colorPrint("  2) TRMP - layered wall", colors.lightGray)
+    colorPrint("  3) Framer - hollow shell or edge frame", colors.lightGray)
+    colorPrint("  4) Filler - fill with falling blocks", colors.lightGray)
+    colorPrint("  5) Torcher - torch grid, one every 8", colors.lightGray)
+    io.write("Preset [1-5] (default 1): ")
+    local choice = read() or ""
+    if choice == "2" then
+        params.mode = "wall"; state.preset = "TRMP"
+    elseif choice == "3" then
+        state.preset = "Framer"
+        colorPrint("Framer mode:", colors.orange)
+        colorPrint("  A) Hollow ROOM (full shell)", colors.green)
+        colorPrint("  B) FRAME (edges only)", colors.green)
+        io.write("Enter A or B: ")
+        local m = (read() or ""):lower()
+        if m == "b" then params.mode = "frame" else params.mode = "shell" end
+    elseif choice == "4" then
+        params.mode = "fill"; state.preset = "Filler"
+    elseif choice == "5" then
+        params.mode = "torch"; state.preset = "Torcher"
+    else
+        state.preset = "Platformer"
+    end
+end
+
+local function promptOptions()
+    local p = params
+    local mode = p.mode
+    if mode == nil or not validModes[mode] then
+        colorPrint("Build mode:", colors.orange)
+        colorPrint("  1) Floor  - single layer platform", colors.lightGray)
+        colorPrint("  2) Walls  - perimeter walls, H layers high", colors.lightGray)
+        colorPrint("  3) Solid  - filled LxWxH block", colors.lightGray)
+        colorPrint("  4) Hollow - shell: floor + walls + roof", colors.lightGray)
+        colorPrint("  5) Roof   - go up N blocks, flat roof, come back", colors.lightGray)
+        colorPrint("  6) Wall   - TRMP solid box, length x height x depth", colors.lightGray)
+        colorPrint("  7) Frame  - framer edges only", colors.lightGray)
+        colorPrint("  8) Shell  - framer hollow room, no floor or ceiling", colors.lightGray)
+        colorPrint("  9) Fill   - filler falling-block columns", colors.lightGray)
+        colorPrint("  10) Torch - torcher grid, one every 8", colors.lightGray)
+        io.write("Enter mode [1-10] (default 1): ")
+        local modes = { "floor", "walls", "solid", "hollow", "roof",
+            "wall", "frame", "shell", "fill", "torch" }
+        local m = (read() or ""):lower()
+        local n = tonumber(m)
+        if n and modes[n] then
+            p.mode = modes[n]
+        elseif validModes[m] then
+            p.mode = m
+        else
+            p.mode = "floor"
+        end
+        mode = p.mode
+    end
+    if mode == "frame" or mode == "shell" then
+        if not p.size or p.size < 1 then
+            p.size = readNum("Enter cube size (N x N x N):")
+        end
+        p.length = p.size
+        p.width = p.size
+        p.height = p.size
+        return
+    end
+    if mode == "torch" then
+        -- Torcher prompts, unchanged: length is X, width is Z.
+        if p.length == 0 then p.length = readNum("Enter area length (X):") end
+        if p.width == 0 then p.width = readNum("Enter area width (Z):") end
+        return
+    end
+    if mode == "wall" then
+        -- Wall takes length, height, depth. It never uses width, so
+        -- it must not fall through to the width prompt below.
+        if p.length == 0 then
+            colorPrint("Enter Length (Z):", colors.orange)
+            p.length = tonumber(read()) or 0
+        end
+        if p.height == nil then
+            p.height = readNum("Enter wall height (layers up):")
+        end
+        if p.depth == nil or p.depth < 1 then
+            p.depth = readNum("Enter wall depth (X):")
+        end
+        return
+    end
+    if p.length == 0 then
+        colorPrint("Enter Length (Z):", colors.orange)
+        p.length = tonumber(read()) or 0
+    end
+    if p.width == 0 then
+        colorPrint("Enter Width  (X):", colors.orange)
+        p.width = tonumber(read()) or 0
+    end
+    if mode == "fill" then
+        return -- no height, no inverted: columns fill until full
+    end
+    if mode == "roof" then
+        if p.inverted == nil then
+            io.write("Build from below (place up, no climbing)? [y/N]: ")
+            local ans = (read() or ""):lower()
+            p.inverted = ans:sub(1, 1) == "y"
+        end
+        if not p.inverted and p.height == nil then
+            io.write("How many blocks up to the roof level? ")
+            p.height = math.floor(tonumber(read()) or 0)
+            if p.height < 0 then p.height = 0 end
+        end
+        if p.height == nil then p.height = 0 end
+        return
+    end
+    if mode ~= "floor" and p.height == nil then
+        p.height = readNum("Enter height in layers:")
+        if p.height < 1 then p.height = 1 end
+    end
+    if p.inverted == nil then
+        io.write("Inverted (place up instead of down)? [y/N]: ")
+        local ans = (read() or ""):lower()
+        p.inverted = ans:sub(1, 1) == "y"
+    end
+end
+
+local function promptStart(resume)
+    if resume then
+        colorPrint("Resuming...", colors.green)
+        sleep(1)
+        return true
+    end
+    term.clear()
+    term.setCursorPos(1, 1)
+    mtui.header("BUILDER v" .. VERSION)
+    colorPrint("Start Position: 0, 0 (Bottom-Left)", colors.yellow)
+    colorPrint("Facing: FORWARD (+Z)", colors.yellow)
+    if state.preset then
+        colorPrint("Preset: " .. state.preset, colors.yellow)
+    end
+    colorPrint("Mode: " .. tostring(state.params.mode) ..
+        (state.params.inverted and " (inverted)" or ""), colors.yellow)
+    if state.params.mode == "torch" then
+        colorPrint("Axes: length X, width Z (torcher, unchanged)", colors.yellow)
+    else
+        colorPrint("Axes: length Z, width X, height up", colors.yellow)
+    end
+    print("Required: " .. totalCells() .. " blocks")
+    if params.debug then colorPrint("DEBUG MODE: DRY RUN (NO PLACE)", colors.magenta) end
+    local have = countMaterial()
+    if have < 64 and not params.debug then
+        colorPrint("WARNING: Low material count (" .. have .. ")", colors.red)
+    end
+    io.write("Press ENTER to start, or Q then ENTER to abort: ")
+    local ans = read() or ""
+    if ans:lower() == "q" then
+        return false
+    end
+    colorPrint("Starting...", colors.green)
+    sleep(1)
+    return true
+end
+
+-- MAIN EXECUTION
+if loadProgress() then
+    cfg = LoopSetup.defaults() -- resume: no questions; safe no-op fuel config
+    buildCells()
+    tripEst = totalCells() + 64
+    createStartup()
+    promptStart(true)
+else
+    parseArgs()
+    promptPreset()
+    promptOptions()
+    -- Preset label follows the mode actually picked, so it stays true
+    -- when the preset menu leads to a different family.
+    local presetByMode = { floor = "Platformer", walls = "Platformer",
+        solid = "Platformer", hollow = "Platformer", roof = "Platformer",
+        wall = "TRMP", frame = "Framer", shell = "Framer",
+        fill = "Filler", torch = "Torcher" }
+    state.preset = presetByMode[params.mode]
+    applyParamDefaults()
+    -- Frame/shell size fills length/width/height in promptOptions.
+    if params.mode == "frame" or params.mode == "shell" then
+        params.length = params.size
+        params.width = params.size
+        params.height = params.size
+    end
+    -- Wall uses depth (X) where the platformer modes use width; the
+    -- shared check below validates length and width, so mirror it.
+    if params.mode == "wall" then params.width = params.depth end
+    if params.mode == "roof" and params.height == nil then params.height = 0 end
+    if params.mode ~= "roof" and params.mode ~= "frame" and params.mode ~= "shell" then
+        if params.height == nil then params.height = 1 end
+    end
+    buildCells()
+    if params.length > 0 and params.width > 0 and totalCells() > 0 then
+        warnRestock()
+        -- One-way fuel estimate: the block count plus a small travel margin.
+        tripEst = totalCells() + 64
+        -- Fuel setup: only ask the fuel questions when the turtle is
+        -- actually short on fuel for this job. Otherwise use the
+        -- no-questions defaults, like a resume (and like quarry
+        -- -default). Same target ensure() uses: 2x the estimate,
+        -- capped at the fuel limit.
+        local fuelLevel = turtle.getFuelLevel()
+        if type(fuelLevel) ~= "number" then fuelLevel = math.huge end
+        local fuelLimit = turtle.getFuelLimit()
+        if type(fuelLimit) ~= "number" then fuelLimit = math.huge end
+        local fuelTarget = 2 * tripEst
+        if fuelTarget > fuelLimit - 1 then fuelTarget = fuelLimit - 1 end
+        if fuelLevel >= fuelTarget then
+            cfg = LoopSetup.defaults()
+        else
+            cfg = LoopSetup.run({
+                blurb = "Builder: floor/walls/solid/hollow/roof, wall, frame, shell, fill, torch. "
+                    .. "Places down (or up when inverted). Returns to 0,0 for material and fuel refills.",
+                fuel = true, fuelTags = true, lava = true, fuelChest = true, bucketSlot = 16,
+            })
+            if not cfg then return end -- user aborted; stop quietly
+        end
+        if not LoopFuel.ensure(cfg, tripEst) then return end -- aborted; quiet
+        createStartup()
+        if not promptStart(false) then
+            fullCleanup()
+            colorPrint("Aborted.", colors.orange)
+            return
+        end
+        offerSessionMaterials() -- plan item 8B; after blocks are loaded, before any digging
+        saveProgress() -- Save initial params
+    else
+        colorPrint("Invalid Dimensions.", colors.red)
+        return
+    end
+end
+
+while true do
+    local ok, err = pcall(runBuild)
+    if not ok then
+        if err == "Terminated" then
+            fullCleanup()
+            colorPrint("\nTerminated by user.", colors.red)
+            return
+        elseif err == "" then
+            return -- quiet stop: user aborted a fuel or material wait
+        else
+            error(err)
+        end
+    else
+        break -- Success
+    end
+end
