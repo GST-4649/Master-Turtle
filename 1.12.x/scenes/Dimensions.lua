@@ -1,4 +1,4 @@
-local version = 20261102.0300
+local version = 20261108.2200
 -- scenes/Dimensions.lua
 -- Dimension prompt dialog, native term style, no SceneMgr, no lib/ui.
 -- Plain module. Dimensions.prompt(program) returns a launch table
@@ -54,8 +54,9 @@ function D.prompt(program)
                         end
                     elseif dim.flag == "-mode" then
                         local v = text:lower()
-                        if v ~= "floor" and v ~= "walls" and v ~= "solid" and v ~= "hollow" and v ~= "roof" then
-                            err = "Mode: floor/walls/solid/hollow/roof"
+                        if v ~= "floor" and v ~= "walls" and v ~= "solid" and v ~= "hollow" and v ~= "roof"
+                            and v ~= "wall" and v ~= "frame" and v ~= "shell" and v ~= "fill" and v ~= "torch" then
+                            err = "Mode: floor/walls/solid/hollow/roof/wall/frame/shell/fill/torch"
                             return nil
                         end
                         args[#args + 1] = "-mode"
@@ -77,7 +78,7 @@ function D.prompt(program)
 
     local function hintFor(dim)
         if dim.flag == "-mode" then
-            return "floor, walls, solid, hollow, roof"
+            return "floor, walls, solid, hollow, roof, wall, frame, shell, fill, torch"
         elseif dim.flag == "-inverted" then
             return "true or false, blank = skip"
         elseif dim.triple then
