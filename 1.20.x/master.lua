@@ -1,4 +1,4 @@
-local version = 20261102.0200
+local version = 20261108.2200
 -- Master Turtle launcher v1.0
 -- Unified native term menu for every program in the Master Turtle pack.
 -- No SceneMgr, no lib/ui in the launcher path. Toolkit v3 still boots
@@ -29,14 +29,17 @@ _G.MasterTurtle = {
     programs = {
         { prog = "quarry-ui", name = "Quarry", cat = "Pinned",
           desc = "Massive quarry (civilwargeeky), crash-proof resume, via quarry-ui preset builder" },
-        { prog = "platformer", name = "Platformer", cat = "Build",
-          desc = "Builder: floor/walls/solid/hollow/roof",
+        { prog = "builder", name = "Builder", cat = "Build",
+          desc = "Builder: floor/walls/solid/hollow/roof/wall/frame/shell/fill/torch",
           dims = {
             { flag = "-length", label = "Length (Z)" },
             { flag = "-width", label = "Width (X)" },
             { flag = "-mode", label = "Mode" },
             { flag = "-height", label = "Height" },
             { flag = "-inverted", label = "Inverted" },
+            { flag = "-depth", label = "Depth (X)" },
+            { flag = "-size", label = "Size (N)" },
+            { flag = "-spacing", label = "Spacing" },
           } },
         { prog = "cropper", name = "Cropper", cat = "Gather",
           desc = "Auto crop farmer, replants as it goes",
@@ -50,30 +53,12 @@ _G.MasterTurtle = {
             { flag = "-length", label = "Scan length" },
             { flag = "-width", label = "Scan width" },
           } },
-        { prog = "filler", name = "Filler", cat = "Build",
-          desc = "Fills an area with falling blocks",
-          dims = {
-            { flag = "-length", label = "Area length (Z)" },
-            { flag = "-width", label = "Area width (X)" },
-          } },
         { prog = "vacuum", name = "Vacuum", cat = "Gather",
           desc = "Floor sweeper, sucks up loose items",
           dims = {
             { flag = "-length", label = "Area length" },
             { flag = "-width", label = "Area width" },
           } },
-        { prog = "trump", name = "TRMP", cat = "Build",
-          desc = "Layered wall builder (snake pattern)",
-          dims = {
-            { flag = "-length", label = "Wall length (X)" },
-            { flag = "-height", label = "Wall height" },
-            { flag = "-depth", label = "Wall thickness" },
-          } },
-        { prog = "framer", name = "Framer", cat = "Build",
-          desc = "Hollow room shell or edge frame",
-          dims = { { flag = "-size", label = "Cube size (N)" } } },
-        { prog = "torcher", name = "Torcher", cat = "Build",
-          desc = "Torch grid builder, one torch every 8 blocks" },
         { prog = "blockman", name = "Block Manager", cat = "Tools",
           desc = "View/edit allowed building blocks" },
         { prog = "chopchop", name = "ChopChop", cat = "Gather",
