@@ -1,4 +1,4 @@
-local version = 20261108.2200
+local version = 20261108.2320
 -- Master Turtle launcher v1.0
 -- Unified native term menu for every program in the Master Turtle pack.
 -- No SceneMgr, no lib/ui in the launcher path. Toolkit v3 still boots
@@ -40,6 +40,24 @@ _G.MasterTurtle = {
             { flag = "-depth", label = "Depth (X)" },
             { flag = "-size", label = "Size (N)" },
             { flag = "-spacing", label = "Spacing" },
+          },
+          -- Mode-first dialog: pick the mode, then only its fields
+          -- are asked. Torch keeps torcher's own axis wording,
+          -- length X and width Z, unlike the rest.
+          modeDims = {
+            floor = { "-length", "-width", "-inverted" },
+            walls = { "-length", "-width", "-height", "-inverted" },
+            solid = { "-length", "-width", "-height", "-inverted" },
+            hollow = { "-length", "-width", "-height", "-inverted" },
+            roof = { "-length", "-width", "-height", "-inverted" },
+            wall = { "-length", "-height", "-depth" },
+            frame = { "-size" },
+            shell = { "-size" },
+            fill = { "-length", "-width" },
+            torch = { "-length", "-width", "-spacing" },
+          },
+          modeLabels = {
+            torch = { ["-length"] = "Length (X)", ["-width"] = "Width (Z)" },
           } },
         { prog = "cropper", name = "Cropper", cat = "Gather",
           desc = "Auto crop farmer, replants as it goes",
