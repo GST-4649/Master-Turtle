@@ -1,4 +1,4 @@
-local version = 20261013.0300
+local version = 20261108.2320
 -- Master Turtle startup.
 -- Boots the Master Turtle launcher menu.
 --
@@ -8,8 +8,32 @@ local version = 20261013.0300
 -- instead of dropping straight to the menu.
 -- The other long runners (platformer, filler, cropper, cluster) manage
 -- their own "startup" stubs the same way.
+--
+-- A save at 100% is a finished run whose end screen never ran (the
+-- turtle was rebooted, or the program died on the way home). There is
+-- nothing left to resume, so delete it and go to the menu instead of
+-- nagging about it on every boot. A save below 100% is a live run and
+-- still gets the resume offer. A save that cannot be read is offered
+-- as before, never deleted blind.
 
-if fs.exists("Civil_Quarry_Restore") then
+local saveFile = "Civil_Quarry_Restore"
+
+local function quarryIsDone()
+    if not fs.exists(saveFile) then return false end
+    local f = fs.open(saveFile, "r")
+    if not f then return false end
+    local data = f.readAll() or ""
+    f.close()
+    local pct = data:match("percent%s*=%s*([%d%.]+)")
+    pct = pct and tonumber(pct) or nil
+    return pct ~= nil and pct >= 100
+end
+
+if fs.exists(saveFile) and quarryIsDone() then
+    fs.delete(saveFile)
+end
+
+if fs.exists(saveFile) then
     print("Quarry save found.")
     print("Wait 5 seconds to resume it,")
     print("or press any key for the menu.")
